@@ -23,8 +23,12 @@ export interface Config {
   smtp_user: string
   smtp_password_set: boolean
   smtp_from: string
+  smtp_from_name: string
   smtp_tls: boolean
   max_genre_snapshots: number
+  smtp_ssl: boolean
+  cache_retention_months: number
+  version: string
 }
 
 export interface ApiStatus {

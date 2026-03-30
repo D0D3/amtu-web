@@ -65,6 +65,8 @@ export const saveConfig = (data: Partial<Config> & {
 export const getApiStatus = () => api.get<ApiStatus>('/config/status').then(r => r.data)
 export const testApis = () => api.post<ApiStatus>('/config/test').then(r => r.data)
 export const testSmtp = () => api.post<{ success: boolean; message: string }>('/config/test-email').then(r => r.data)
+export const getCacheStats = () => api.get<{ total: number; active: number; expired: number; total_hits: number; oldest_entry: string | null }>('/config/cache/stats').then(r => r.data)
+export const purgeCache = (expiredOnly = false) => api.delete<{ success: boolean; deleted: number; scope: string }>(`/config/cache?expired_only=${expiredOnly}`).then(r => r.data)
 
 // Jobs
 export const createJob = (data: { file_paths?: string[]; scan_path?: string; dry_run?: boolean }) =>

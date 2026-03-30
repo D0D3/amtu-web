@@ -57,7 +57,19 @@ def process_files_task(self, job_id: str, file_paths: list, config: dict, dry_ru
             custom_mappings[row.type + 's'][row.source] = row.target
 
         genre_manager = GenreManager(custom_mappings)
-        processor = MP3Processor(api_manager, genre_manager)
+
+        # Initialiser le cache manager
+        cache_retention = 6
+        try:
+            cfg_row = db.query(db_models.Config).filter(db_models.Config.id == 1).first()
+            if cfg_row and cfg_row.cache_retention_months:
+                cache_retention = cfg_row.cache_retention_months
+        except Exception:
+            pass
+        from services.cache import CacheManager
+        cache_manager = CacheManager(db, retention_months=cache_retention)
+
+        processor = MP3Processor(api_manager, genre_manager, cache_manager=cache_manager)
 
         total = len(file_paths)
         publish_event('started', {'total': total})
@@ -212,6 +224,14 @@ def process_files_task(self, job_id: str, file_paths: list, config: dict, dry_ru
                 send_job_completion_email(smtp_cfg, recipients, job, results_rows)
         except Exception as mail_err:
             logger.warning(f"Email non envoyé: {mail_err}")
+
+        # Purger les entrées cache expirées
+        try:
+            purged = cache_manager.purge_expired()
+            if purged:
+                logger.info(f"Cache : {purged} entrée(s) expirée(s) supprimée(s)")
+        except Exception:
+            pass
 
         return {'updated': updated, 'skipped': skipped, 'errors': errors}
 

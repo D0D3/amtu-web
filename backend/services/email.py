@@ -95,7 +95,10 @@ def send_job_completion_email(smtp_cfg: dict, recipients: List[str], job, result
     try:
         msg = MIMEMultipart('mixed')
         msg['Subject'] = f"[AMTU] {updated} fichiers mis à jour — lot {short_id}"
-        msg['From'] = smtp_cfg['from']
+        email = smtp_cfg.get('from') or smtp_cfg.get('user') or 'amtu@localhost'
+        name = smtp_cfg.get('from_name', '').strip()
+        from_addr = f"{name} <{email}>" if name else email
+        msg['From'] = from_addr
         msg['To'] = ', '.join(recipients)
         msg.attach(MIMEText(html, 'html', 'utf-8'))
 
@@ -113,8 +116,14 @@ def send_job_completion_email(smtp_cfg: dict, recipients: List[str], job, result
         port = smtp_cfg.get('port', 587)
         user = smtp_cfg.get('user', '')
         password = smtp_cfg.get('password', '')
+        use_ssl = smtp_cfg.get('ssl', False) or port == 465
 
-        if smtp_cfg.get('tls', True):
+        if use_ssl:
+            with smtplib.SMTP_SSL(host, port, timeout=10) as server:
+                if user:
+                    server.login(user, password)
+                server.send_message(msg)
+        elif smtp_cfg.get('tls', True):
             with smtplib.SMTP(host, port, timeout=10) as server:
                 server.starttls()
                 if user:

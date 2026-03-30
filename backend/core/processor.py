@@ -401,9 +401,10 @@ class APIManager:
 class MP3Processor:
     """Traitement MP3 - même logique Apple Music tags que src/AMTU.py::MP3Processor"""
 
-    def __init__(self, api_manager: APIManager, genre_manager: GenreManager):
+    def __init__(self, api_manager: APIManager, genre_manager: GenreManager, cache_manager=None):
         self.api_manager = api_manager
         self.genre_manager = genre_manager
+        self.cache_manager = cache_manager
 
     def _is_valid_mp3(self, file_path: Path) -> bool:
         if file_path.name.startswith('._') or file_path.name.startswith('.'):
@@ -464,36 +465,47 @@ class MP3Processor:
             # Métadonnées déjà trouvées (groupe album/EP) — pas d'appel API
             best = forced_meta
         else:
-            # Détecter si le fichier est un single (tag album contient "Single")
-            is_single_hint = bool(re.search(r'\bsingle\b', tags.get('album', ''), re.IGNORECASE))
+            # Vérifier le cache d'abord
+            cached_meta = self.cache_manager.get(tags['title'], tags['artist']) if self.cache_manager else None
+            if cached_meta:
+                best = cached_meta
+                result.confidence = best.confidence
+                result.source_api = f"{best.source} (cache)"
+            else:
+                # Détecter si le fichier est un single (tag album contient "Single")
+                is_single_hint = bool(re.search(r'\bsingle\b', tags.get('album', ''), re.IGNORECASE))
 
-            # Délai API
-            time.sleep(0.5)
+                # Délai API
+                time.sleep(0.5)
 
-            try:
-                api_results = self.api_manager.search_track(
-                    tags['title'], tags['artist'], prefer_single=is_single_hint
-                )
-            except Exception as e:
-                result.error_message = f"Erreur API: {str(e)}"
-                result.status = 'error'
-                return result
+                try:
+                    api_results = self.api_manager.search_track(
+                        tags['title'], tags['artist'], prefer_single=is_single_hint
+                    )
+                except Exception as e:
+                    result.error_message = f"Erreur API: {str(e)}"
+                    result.status = 'error'
+                    return result
 
-            if not api_results:
-                result.skip_reason = "Aucun résultat trouvé sur les APIs"
-                return result
+                if not api_results:
+                    result.skip_reason = "Aucun résultat trouvé sur les APIs"
+                    return result
 
-            best = api_results[0]
-            result.confidence = best.confidence
-            result.source_api = best.source
+                best = api_results[0]
+                result.confidence = best.confidence
+                result.source_api = best.source
 
-            if best.confidence < 60:
-                result.skip_reason = f"Confiance insuffisante ({best.confidence:.0f}% < 60%)"
-                return result
+                if best.confidence < 60:
+                    result.skip_reason = f"Confiance insuffisante ({best.confidence:.0f}% < 60%)"
+                    return result
 
-            if not best.label:
-                result.skip_reason = "Label non trouvé"
-                return result
+                if not best.label:
+                    result.skip_reason = "Label non trouvé"
+                    return result
+
+                # Sauvegarder en cache
+                if self.cache_manager:
+                    self.cache_manager.set(tags['title'], tags['artist'], best)
 
         # Détecter genre
         best.genre = self.genre_manager.detect_genre(best)
@@ -627,19 +639,26 @@ class MP3Processor:
         group_meta = None
 
         if tags and tags.get('title') and tags.get('artist'):
-            is_single_hint = bool(re.search(r'\bsingle\b', tags.get('album', ''), re.IGNORECASE))
-            time.sleep(0.5)
-            try:
-                api_results = self.api_manager.search_track(
-                    tags['title'], tags['artist'], prefer_single=is_single_hint
-                )
-                if api_results:
-                    best = api_results[0]
-                    if best.confidence >= 60 and best.label:
-                        best.genre = self.genre_manager.detect_genre(best)
-                        group_meta = best
-            except Exception as e:
-                logger.error(f"Erreur API pour groupe '{tags.get('album', first.name)}': {e}")
+            # Vérifier le cache d'abord
+            cached_meta = self.cache_manager.get(tags['title'], tags['artist']) if self.cache_manager else None
+            if cached_meta:
+                group_meta = cached_meta
+            else:
+                is_single_hint = bool(re.search(r'\bsingle\b', tags.get('album', ''), re.IGNORECASE))
+                time.sleep(0.5)
+                try:
+                    api_results = self.api_manager.search_track(
+                        tags['title'], tags['artist'], prefer_single=is_single_hint
+                    )
+                    if api_results:
+                        best = api_results[0]
+                        if best.confidence >= 60 and best.label:
+                            best.genre = self.genre_manager.detect_genre(best)
+                            group_meta = best
+                            if self.cache_manager:
+                                self.cache_manager.set(tags['title'], tags['artist'], best)
+                except Exception as e:
+                    logger.error(f"Erreur API pour groupe '{tags.get('album', first.name)}': {e}")
 
         # Application à chaque fichier du groupe
         results = []

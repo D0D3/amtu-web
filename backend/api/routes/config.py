@@ -1,9 +1,12 @@
 """Routes config API — tokens, services enablement"""
+import logging
 import os
 import smtplib
 from datetime import datetime
 from email.mime.text import MIMEText
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -58,8 +61,11 @@ class ConfigIn(BaseModel):
     smtp_user: Optional[str] = ""
     smtp_password: Optional[str] = ""
     smtp_from: Optional[str] = ""
+    smtp_from_name: Optional[str] = ""
     smtp_tls: bool = True
     max_genre_snapshots: int = 3
+    smtp_ssl: bool = False
+    cache_retention_months: int = 6
 
 
 class ConfigOut(BaseModel):
@@ -75,8 +81,22 @@ class ConfigOut(BaseModel):
     smtp_user: str
     smtp_password_set: bool
     smtp_from: str
+    smtp_from_name: str
     smtp_tls: bool
     max_genre_snapshots: int
+    smtp_ssl: bool
+    cache_retention_months: int
+    version: str
+
+
+def _get_version() -> str:
+    import os
+    try:
+        v_path = os.path.join(os.path.dirname(__file__), '..', '..', 'VERSION')
+        with open(os.path.abspath(v_path)) as f:
+            return f.read().strip()
+    except Exception:
+        return "1.0.0"
 
 
 def _get_or_create_config(db: Session) -> db_models.Config:
@@ -105,8 +125,12 @@ def get_config(db: Session = Depends(get_db), _=Depends(require_admin)):
         smtp_user=cfg.smtp_user or "",
         smtp_password_set=bool(cfg.smtp_password_enc),
         smtp_from=cfg.smtp_from or "",
+        smtp_from_name=cfg.smtp_from_name or "",
         smtp_tls=cfg.smtp_tls if cfg.smtp_tls is not None else True,
         max_genre_snapshots=cfg.max_genre_snapshots if cfg.max_genre_snapshots is not None else 3,
+        smtp_ssl=cfg.smtp_ssl or False,
+        cache_retention_months=cfg.cache_retention_months if cfg.cache_retention_months is not None else 6,
+        version=_get_version(),
     )
 
 
@@ -129,9 +153,13 @@ def save_config(data: ConfigIn, db: Session = Depends(get_db), _=Depends(require
     if data.smtp_password:
         cfg.smtp_password_enc = _encrypt(data.smtp_password)
     cfg.smtp_from = data.smtp_from or cfg.smtp_from
+    cfg.smtp_from_name = data.smtp_from_name if data.smtp_from_name is not None else cfg.smtp_from_name
     cfg.smtp_tls = data.smtp_tls
     if data.max_genre_snapshots >= 3:
         cfg.max_genre_snapshots = data.max_genre_snapshots
+    cfg.smtp_ssl = data.smtp_ssl
+    if 6 <= data.cache_retention_months <= 24:
+        cfg.cache_retention_months = data.cache_retention_months
     cfg.updated_at = datetime.utcnow()
     db.commit()
     return {"success": True}
@@ -182,15 +210,22 @@ def test_email(db: Session = Depends(get_db), admin: db_models.User = Depends(re
             'plain', 'utf-8'
         )
         msg['Subject'] = "[AMTU] Test de configuration email"
-        msg['From'] = smtp_cfg.get('from') or smtp_cfg.get('user', 'amtu@localhost')
         msg['To'] = admin.email
 
         host = smtp_cfg['host']
         port = smtp_cfg.get('port', 587)
         user = smtp_cfg.get('user', '')
         password = smtp_cfg.get('password', '')
+        use_ssl = smtp_cfg.get('ssl', False) or port == 465
+        from_addr = _build_from_addr(smtp_cfg)
+        msg['From'] = from_addr
 
-        if smtp_cfg.get('tls', True):
+        if use_ssl:
+            with smtplib.SMTP_SSL(host, port, timeout=10) as server:
+                if user:
+                    server.login(user, password)
+                server.send_message(msg)
+        elif smtp_cfg.get('tls', True):
             with smtplib.SMTP(host, port, timeout=10) as server:
                 server.starttls()
                 if user:
@@ -205,7 +240,17 @@ def test_email(db: Session = Depends(get_db), admin: db_models.User = Depends(re
         return {"success": True, "message": f"Email de test envoyé à {admin.email}"}
 
     except Exception as e:
+        logger.error(f"SMTP test failed — host={smtp_cfg.get('host')} port={smtp_cfg.get('port')} ssl={smtp_cfg.get('ssl')} tls={smtp_cfg.get('tls')} user={smtp_cfg.get('user')} from={smtp_cfg.get('from')} to={admin.email} : {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Erreur SMTP : {str(e)}")
+
+
+def _build_from_addr(smtp_cfg: dict) -> str:
+    """Construit l'adresse From : 'Nom Affiché <email>' ou juste 'email'."""
+    email = smtp_cfg.get('from') or smtp_cfg.get('user') or 'amtu@localhost'
+    name = smtp_cfg.get('from_name', '').strip()
+    if name:
+        return f"{name} <{email}>"
+    return email
 
 
 def _build_smtp_config(db: Session) -> dict:
@@ -217,5 +262,33 @@ def _build_smtp_config(db: Session) -> dict:
         'user': cfg.smtp_user or "",
         'password': _decrypt(cfg.smtp_password_enc) if cfg.smtp_password_enc else "",
         'from': cfg.smtp_from or "",
+        'from_name': cfg.smtp_from_name or "",
         'tls': cfg.smtp_tls if cfg.smtp_tls is not None else True,
+        'ssl': cfg.smtp_ssl or False,
     }
+
+
+@router.get("/cache/stats")
+def get_cache_stats(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Statistiques du cache de résultats API."""
+    from services.cache import CacheManager
+    cm = CacheManager(db)
+    return cm.stats()
+
+
+@router.delete("/cache")
+def purge_cache(expired_only: bool = False, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Purge le cache : soit les entrées expirées uniquement, soit tout le cache."""
+    from services.cache import CacheManager
+    cm = CacheManager(db)
+    if expired_only:
+        count = cm.purge_expired()
+        return {"success": True, "deleted": count, "scope": "expired"}
+    count = cm.purge_all()
+    return {"success": True, "deleted": count, "scope": "all"}
+
+
+@router.get("/version")
+def get_version():
+    """Version de l'application."""
+    return {"version": _get_version()}

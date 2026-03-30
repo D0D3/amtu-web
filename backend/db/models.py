@@ -35,8 +35,11 @@ class Config(Base):
     smtp_user = Column(String, default="")
     smtp_password_enc = Column(String, default="")
     smtp_from = Column(String, default="")
+    smtp_from_name = Column(String, default="")
     smtp_tls = Column(Boolean, default=True)
     max_genre_snapshots = Column(Integer, default=3)
+    smtp_ssl = Column(Boolean, default=False)
+    cache_retention_months = Column(Integer, default=6)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -117,3 +120,21 @@ class GenreAuditLog(Base):
     details = Column(Text, default="")  # ex: "42 labels, 15 artistes, 8 aliases importés"
     snapshot_id = Column(Integer, ForeignKey("genre_snapshots.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class TrackCache(Base):
+    """Cache des résultats API pour accélérer le retraitement des titres déjà connus."""
+    __tablename__ = "track_cache"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title_key = Column(String, nullable=False, index=True)   # titre normalisé
+    artist_key = Column(String, nullable=False, index=True)  # artiste normalisé
+    label = Column(String, default="")
+    catalog_number = Column(String, default="")
+    confidence = Column(Float, default=0.0)
+    source_api = Column(String, default="")
+    is_single = Column(Boolean, default=False)
+    genre = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_used_at = Column(DateTime, default=datetime.utcnow)
+    hit_count = Column(Integer, default=0)
+    expires_at = Column(DateTime, nullable=False)

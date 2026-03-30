@@ -34,7 +34,10 @@ def _migrate_columns():
         'smtp_user': 'VARCHAR DEFAULT ""',
         'smtp_password_enc': 'VARCHAR DEFAULT ""',
         'smtp_from': 'VARCHAR DEFAULT ""',
+        'smtp_from_name': 'VARCHAR DEFAULT ""',
         'smtp_tls': 'BOOLEAN DEFAULT 1',
+        'smtp_ssl': 'BOOLEAN DEFAULT 0',
+        'cache_retention_months': 'INTEGER DEFAULT 6',
     }
     new_job_cols = {
         'created_by': 'INTEGER',

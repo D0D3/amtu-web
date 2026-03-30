@@ -4,6 +4,17 @@ AMTU Web Backend — FastAPI Application
 import os
 from contextlib import asynccontextmanager
 
+
+def _read_version() -> str:
+    try:
+        v_path = os.path.join(os.path.dirname(__file__), 'VERSION')
+        with open(v_path) as f:
+            return f.read().strip()
+    except Exception:
+        return "1.0.0"
+
+APP_VERSION = _read_version()
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -27,7 +38,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="AMTU Web API",
     description="Apple Music Tag Updater — Web Version",
-    version="1.0.0",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 
@@ -85,4 +96,4 @@ app.include_router(files.router)
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "1.0.0"}
+    return {"status": "ok", "version": APP_VERSION}
