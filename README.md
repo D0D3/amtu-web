@@ -50,8 +50,8 @@ docker compose up -d
 |----------|-------------|--------|
 | `SECRET_KEY` | Clé de chiffrement JWT (32+ chars, changez-la !) | `amtu-please-change-this-secret-key-32chars` |
 | `MUSIC_DIR` | Chemin vers votre dossier de musique (lecture seule) | `./music_sample` |
-| `DOMAIN` | Domaine exposé par Traefik | `amtu.humanbrorecords.club` |
-| `APP_URL` | URL publique (liens emails) | `https://amtu.humanbrorecords.club` |
+| `DOMAIN` | Domaine exposé par Traefik | `amtu.youdomain.yxz` |
+| `APP_URL` | URL publique (liens emails) | `https://amtu.youdomain.yxz` |
 | `ADMIN_USERNAME` | Identifiant admin initial | `admin` |
 | `ADMIN_PASSWORD` | Mot de passe admin initial (changez-le !) | `amtu-change-me` |
 | `ADMIN_EMAIL` | Email admin | `admin@exemple.com` |
