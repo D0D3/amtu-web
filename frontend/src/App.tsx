@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { LayoutDashboard, History, Settings, Tag, Users, LogOut, UserCircle, Sun, Moon } from 'lucide-react'
+import { QueryClient, QueryClientProvider, useQuery, useMutation } from '@tanstack/react-query'
+import { getAnnouncements, deleteAnnouncement } from './lib/api'
+import type { Announcement } from './lib/types'
+import { LayoutDashboard, History, Settings, Tag, Users, LogOut, UserCircle, Sun, Moon, X } from 'lucide-react'
 import { Dashboard } from './pages/Dashboard'
 import { History as HistoryPage } from './pages/History'
 import { Settings as SettingsPage } from './pages/Settings'
@@ -29,6 +31,52 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   if (!user) return <Navigate to="/login" replace />
   if (!user.is_admin) return <Navigate to="/" replace />
   return <>{children}</>
+}
+
+function AnnouncementBanner() {
+  const { user } = useAuth()
+  const { data: announcements = [] } = useQuery({
+    queryKey: ['announcements'],
+    queryFn: getAnnouncements,
+    enabled: !!user,
+    refetchInterval: 60000,
+  })
+  const deleteMutation = useMutation({ mutationFn: deleteAnnouncement })
+
+  const dismissed = JSON.parse(localStorage.getItem('amtu_dismissed_ann') || '[]') as number[]
+
+  const visible = announcements.filter(a => !dismissed.includes(a.id))
+  if (!visible.length) return null
+
+  const dismiss = (id: number) => {
+    const next = [...dismissed, id]
+    localStorage.setItem('amtu_dismissed_ann', JSON.stringify(next))
+    // force re-render
+    window.dispatchEvent(new Event('storage'))
+  }
+
+  const typeStyles: Record<string, string> = {
+    info: 'bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-700 text-blue-800 dark:text-blue-200',
+    warning: 'bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-200',
+    error: 'bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-700 text-red-800 dark:text-red-200',
+  }
+  const typeIcons: Record<string, string> = { info: 'ℹ️', warning: '⚠️', error: '🔴' }
+
+  return (
+    <div className="space-y-1">
+      {visible.map(ann => (
+        <div key={ann.id} className={`flex items-start justify-between gap-3 px-4 sm:px-6 py-2.5 border-b text-sm ${typeStyles[ann.type] || typeStyles.info}`}>
+          <span className="flex items-center gap-2">
+            <span>{typeIcons[ann.type] || 'ℹ️'}</span>
+            <span>{ann.message}</span>
+          </span>
+          <button onClick={() => dismiss(ann.id)} className="shrink-0 opacity-60 hover:opacity-100 transition-opacity">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 function Layout({ children }: { children: React.ReactNode }) {
@@ -111,6 +159,8 @@ function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
+
+      <AnnouncementBanner />
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
         {children}

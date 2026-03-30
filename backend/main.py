@@ -24,6 +24,7 @@ from api.routes import config, jobs, history, genres, files
 from api.routes import auth as auth_routes
 from api.routes import users as users_routes
 from api.routes import enrich as enrich_routes
+from api.routes import announcements as announcements_routes
 
 # Routes publiques (pas de token requis)
 PUBLIC_PATHS = {"/api/health", "/api/auth/login"}
@@ -87,6 +88,7 @@ async def auth_middleware(request: Request, call_next):
 app.include_router(auth_routes.router)
 app.include_router(users_routes.router)
 app.include_router(enrich_routes.router)
+app.include_router(announcements_routes.router)
 app.include_router(config.router)
 app.include_router(jobs.router)
 app.include_router(history.router)

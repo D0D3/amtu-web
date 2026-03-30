@@ -49,9 +49,12 @@ def _migrate_columns():
         'created_by': 'INTEGER',
         'username': 'VARCHAR DEFAULT ""',
     }
+    new_user_cols = {
+        'token_invalidated_at': 'DATETIME',
+    }
     try:
         with engine.connect() as conn:
-            for table, cols in [('config', new_config_cols), ('jobs', new_job_cols), ('genre_mappings', new_genre_cols), ('history', new_history_cols)]:
+            for table, cols in [('config', new_config_cols), ('jobs', new_job_cols), ('genre_mappings', new_genre_cols), ('history', new_history_cols), ('users', new_user_cols)]:
                 result = conn.execute(text(f"PRAGMA table_info({table})"))
                 existing = {row[1] for row in result}
                 for col, col_type in cols.items():

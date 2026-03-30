@@ -16,6 +16,7 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     email_notifications = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    token_invalidated_at = Column(DateTime, nullable=True)
 
 
 class Config(Base):
@@ -122,6 +123,18 @@ class GenreAuditLog(Base):
     details = Column(Text, default="")  # ex: "42 labels, 15 artistes, 8 aliases importés"
     snapshot_id = Column(Integer, ForeignKey("genre_snapshots.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Announcement(Base):
+    """Messages admin → utilisateurs (global ou ciblé)."""
+    __tablename__ = "announcements"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    message = Column(Text, nullable=False)
+    type = Column(String, default="info")   # info | warning | error
+    target_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # NULL = global
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
 
 
 class TrackCache(Base):

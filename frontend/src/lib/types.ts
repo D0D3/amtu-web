@@ -8,6 +8,7 @@ export interface User {
   is_active?: boolean
   email_notifications: boolean
   created_at?: string
+  is_online?: boolean
 }
 
 export interface Config {
@@ -170,4 +171,14 @@ export interface LocalTrackResult {
   album_artist_after?: string
   skip_reason?: string
   error_message?: string
+}
+
+export interface Announcement {
+  id: number
+  message: string
+  type: 'info' | 'warning' | 'error'
+  target_user_id: number | null
+  created_by: number | null
+  created_at: string
+  expires_at: string | null
 }

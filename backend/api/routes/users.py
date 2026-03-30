@@ -1,4 +1,5 @@
 """Routes gestion des utilisateurs — admin only"""
+from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -6,12 +7,12 @@ from sqlalchemy.orm import Session
 
 from db.database import get_db
 from db import models as db_models
-from services.auth import get_password_hash, require_admin
+from services.auth import get_password_hash, require_admin, get_online_user_ids, clear_presence
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
 
-def _user_dict(u: db_models.User) -> dict:
+def _user_dict(u: db_models.User, online_ids: set = None) -> dict:
     return {
         "id": u.id,
         "username": u.username,
@@ -22,6 +23,7 @@ def _user_dict(u: db_models.User) -> dict:
         "is_active": u.is_active,
         "email_notifications": u.email_notifications,
         "created_at": u.created_at.isoformat() if u.created_at else None,
+        "is_online": (u.id in online_ids) if online_ids is not None else False,
     }
 
 
@@ -47,7 +49,8 @@ class UserUpdate(BaseModel):
 
 @router.get("")
 def list_users(db: Session = Depends(get_db), _=Depends(require_admin)):
-    return [_user_dict(u) for u in db.query(db_models.User).all()]
+    online_ids = get_online_user_ids()
+    return [_user_dict(u, online_ids) for u in db.query(db_models.User).all()]
 
 
 @router.post("")
@@ -72,12 +75,7 @@ def create_user(data: UserCreate, db: Session = Depends(get_db), _=Depends(requi
 
 
 @router.patch("/{user_id}")
-def update_user(
-    user_id: int,
-    data: UserUpdate,
-    db: Session = Depends(get_db),
-    _=Depends(require_admin),
-):
+def update_user(user_id: int, data: UserUpdate, db: Session = Depends(get_db), _=Depends(require_admin)):
     user = db.query(db_models.User).filter(db_models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
@@ -108,4 +106,18 @@ def delete_user(user_id: int, db: Session = Depends(get_db), admin=Depends(requi
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
     db.delete(user)
     db.commit()
+    return {"success": True}
+
+
+@router.post("/{user_id}/force-logout")
+def force_logout(user_id: int, db: Session = Depends(get_db), admin=Depends(require_admin)):
+    """Révoque tous les tokens actifs de l'utilisateur."""
+    if user_id == admin.id:
+        raise HTTPException(status_code=400, detail="Impossible de vous déconnecter vous-même")
+    user = db.query(db_models.User).filter(db_models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    user.token_invalidated_at = datetime.utcnow()
+    db.commit()
+    clear_presence(user_id)
     return {"success": True}

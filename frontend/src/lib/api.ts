@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { Config, ApiStatus, Job, TrackResult, HistoryItem, GenreMappings, User, EnrichResult, GenreSnapshot, GenreAuditEntry } from './types'
+import type { Config, ApiStatus, Job, TrackResult, HistoryItem, GenreMappings, User, EnrichResult, GenreSnapshot, GenreAuditEntry, Announcement } from './types'
 
 const api = axios.create({
   baseURL: '/api',
@@ -51,6 +51,7 @@ export const updateUser = (id: number, data: Partial<{
 }>) => api.patch(`/users/${id}`, data).then(r => r.data)
 
 export const deleteUser = (id: number) => api.delete(`/users/${id}`).then(r => r.data)
+export const forceLogout = (id: number) => api.post(`/users/${id}/force-logout`).then(r => r.data)
 
 // Enrich (traitement local File System Access API)
 export const enrichTrack = (data: {
@@ -123,3 +124,10 @@ export const scanFolder = (path = '') =>
   api.get<{ files: any[]; folders: any[]; path: string }>('/files/scan', { params: { path } }).then(r => r.data)
 
 export const healthCheck = () => api.get('/health').then(r => r.data)
+
+// Announcements
+export const getAnnouncements = () => api.get<Announcement[]>('/announcements').then(r => r.data)
+export const getAllAnnouncements = () => api.get<Announcement[]>('/announcements/all').then(r => r.data)
+export const createAnnouncement = (data: { message: string; type: string; target_user_id?: number | null; expires_in_hours?: number | null }) =>
+  api.post<Announcement>('/announcements', data).then(r => r.data)
+export const deleteAnnouncement = (id: number) => api.delete(`/announcements/${id}`).then(r => r.data)
