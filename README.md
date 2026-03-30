@@ -3,6 +3,8 @@
 Version web de [AMTU](https://github.com/D0D3/AMTU), l'outil Python de mise à jour de tags MP3 pour Apple Music.
 Enrichit automatiquement vos fichiers MP3 (label, catalogue, genre, album artist) via MusicBrainz, Spotify et Discogs.
 
+<img width="892" height="707" alt="Capture d&#39;écran 2026-03-30 151525" src="https://github.com/user-attachments/assets/ebbe818c-f4ce-461f-8bf6-14240716a12b" />
+
 ---
 
 ## Fonctionnalités
@@ -50,8 +52,8 @@ docker compose up -d
 |----------|-------------|--------|
 | `SECRET_KEY` | Clé de chiffrement JWT (32+ chars, changez-la !) | `amtu-please-change-this-secret-key-32chars` |
 | `MUSIC_DIR` | Chemin vers votre dossier de musique (lecture seule) | `./music_sample` |
-| `DOMAIN` | Domaine exposé par Traefik | `amtu.youdomain.yxz` |
-| `APP_URL` | URL publique (liens emails) | `https://amtu.youdomain.yxz` |
+| `DOMAIN` | Domaine exposé par Traefik | `amtu.yourdomain.yxz` |
+| `APP_URL` | URL publique (liens emails) | `https://amtu.yourdomain.yxz` |
 | `ADMIN_USERNAME` | Identifiant admin initial | `admin` |
 | `ADMIN_PASSWORD` | Mot de passe admin initial (changez-le !) | `amtu-change-me` |
 | `ADMIN_EMAIL` | Email admin | `admin@exemple.com` |
