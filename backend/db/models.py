@@ -87,6 +87,8 @@ class History(Base):
     skip_reason = Column(Text, default="")
     dry_run = Column(Boolean, default=False)
     processed_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    username = Column(String, default="")  # dénormalisé pour affichage
 
 
 class GenreMapping(Base):

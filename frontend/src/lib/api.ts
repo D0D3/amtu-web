@@ -76,7 +76,7 @@ export const cancelJob = (jobId: string) => api.post(`/jobs/${jobId}/cancel`).th
 export const getJobResults = (jobId: string) => api.get<TrackResult[]>(`/jobs/${jobId}/results`).then(r => r.data)
 
 // History
-export const getHistory = (params?: { page?: number; per_page?: number; status?: string; artist?: string }) =>
+export const getHistory = (params?: { page?: number; per_page?: number; status?: string; artist?: string; user_id?: number }) =>
   api.get<{ total: number; page: number; per_page: number; items: HistoryItem[] }>('/history', { params }).then(r => r.data)
 export const saveHistoryBatch = (entries: {
   file_name: string; status: string; dry_run: boolean; confidence: number; source_api: string;

@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Download, Trash2, ChevronDown, ChevronRight, CheckCircle2, SkipForward, XCircle } from 'lucide-react'
-import { getHistory, deleteHistory, clearHistory, exportHistory } from '../lib/api'
+import { Download, Trash2, ChevronDown, ChevronRight, CheckCircle2, SkipForward, XCircle, User } from 'lucide-react'
+import { getHistory, deleteHistory, clearHistory, exportHistory, getUsers } from '../lib/api'
 import type { HistoryItem } from '../lib/types'
+import { useAuth } from '../contexts/AuthContext'
 
 const statusIcon = (s: string) => {
   if (s === 'updated') return <CheckCircle2 className="w-4 h-4 text-green-500" />
@@ -22,7 +23,7 @@ const sourceColors: Record<string, string> = {
   Discogs: 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400',
 }
 
-function HistoryRow({ item, onDelete }: { item: HistoryItem; onDelete: () => void }) {
+function HistoryRow({ item, onDelete, showUser }: { item: HistoryItem; onDelete: () => void; showUser: boolean }) {
   const [expanded, setExpanded] = useState(false)
 
   return (
@@ -64,6 +65,18 @@ function HistoryRow({ item, onDelete }: { item: HistoryItem; onDelete: () => voi
         <td className="px-4 py-3 text-xs text-gray-400 dark:text-gray-500 hidden xl:table-cell">
           {new Date(item.processed_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
         </td>
+        {showUser && (
+          <td className="px-4 py-3 hidden xl:table-cell">
+            {item.username ? (
+              <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                <User className="w-3 h-3" />
+                {item.username}
+              </span>
+            ) : (
+              <span className="text-xs text-gray-300 dark:text-gray-600">—</span>
+            )}
+          </td>
+        )}
         <td className="px-4 py-3">
           <button onClick={onDelete} className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500 transition-all">
             <Trash2 className="w-4 h-4" />
@@ -72,7 +85,7 @@ function HistoryRow({ item, onDelete }: { item: HistoryItem; onDelete: () => voi
       </tr>
       {expanded && (
         <tr>
-          <td colSpan={8} className="px-10 py-3 bg-gray-50 dark:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700">
+          <td colSpan={showUser ? 9 : 8} className="px-10 py-3 bg-gray-50 dark:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700">
             <div className="grid grid-cols-2 gap-6 text-xs">
               <div>
                 <p className="font-medium text-gray-500 dark:text-gray-400 mb-2">Avant</p>
@@ -111,15 +124,31 @@ function HistoryRow({ item, onDelete }: { item: HistoryItem; onDelete: () => voi
 }
 
 export function History() {
+  const { user } = useAuth()
+  const isAdmin = user?.is_admin ?? false
   const qc = useQueryClient()
+
   const [page, setPage] = useState(1)
   const [statusFilter, setStatusFilter] = useState('')
   const [artistFilter, setArtistFilter] = useState('')
+  const [userIdFilter, setUserIdFilter] = useState<number | undefined>(undefined)
   const [confirmClear, setConfirmClear] = useState(false)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['history', page, statusFilter, artistFilter],
-    queryFn: () => getHistory({ page, per_page: 50, status: statusFilter || undefined, artist: artistFilter || undefined }),
+    queryKey: ['history', page, statusFilter, artistFilter, userIdFilter],
+    queryFn: () => getHistory({
+      page,
+      per_page: 50,
+      status: statusFilter || undefined,
+      artist: artistFilter || undefined,
+      user_id: userIdFilter,
+    }),
+  })
+
+  const { data: users } = useQuery({
+    queryKey: ['users'],
+    queryFn: getUsers,
+    enabled: isAdmin,
   })
 
   const deleteMutation = useMutation({
@@ -155,6 +184,18 @@ export function History() {
           <option value="skipped">Ignorés</option>
           <option value="error">Erreurs</option>
         </select>
+        {isAdmin && users && (
+          <select
+            value={userIdFilter ?? ''}
+            onChange={e => { setUserIdFilter(e.target.value ? Number(e.target.value) : undefined); setPage(1) }}
+            className={inputClass}
+          >
+            <option value="">Tous les utilisateurs</option>
+            {users.map(u => (
+              <option key={u.id} value={u.id}>{u.username}{u.first_name ? ` — ${u.first_name} ${u.last_name}` : ''}</option>
+            ))}
+          </select>
+        )}
         <span className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{data?.total || 0} entrée(s)</span>
         <button
           onClick={exportHistory}
@@ -171,7 +212,9 @@ export function History() {
           </button>
         ) : (
           <div className="flex items-center gap-2">
-            <span className="text-sm text-red-600 dark:text-red-400">Confirmer ?</span>
+            <span className="text-sm text-red-600 dark:text-red-400">
+              {isAdmin && userIdFilter ? 'Vider cet utilisateur ?' : isAdmin ? 'Vider tout ?' : 'Vider votre historique ?'}
+            </span>
             <button onClick={() => clearMutation.mutate()} className="text-sm text-red-600 dark:text-red-400 font-medium hover:underline">Oui</button>
             <button onClick={() => setConfirmClear(false)} className="text-sm text-gray-500 dark:text-gray-400 hover:underline">Non</button>
           </div>
@@ -199,12 +242,13 @@ export function History() {
                   <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase hidden lg:table-cell">Source</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase hidden lg:table-cell">Conf.</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase hidden xl:table-cell">Date</th>
+                  {isAdmin && <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase hidden xl:table-cell">Utilisateur</th>}
                   <th className="w-10" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
                 {data.items.map(item => (
-                  <HistoryRow key={item.id} item={item} onDelete={() => deleteMutation.mutate(item.id)} />
+                  <HistoryRow key={item.id} item={item} showUser={isAdmin} onDelete={() => deleteMutation.mutate(item.id)} />
                 ))}
               </tbody>
             </table>

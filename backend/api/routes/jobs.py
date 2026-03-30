@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from db.database import get_db
 from db import models as db_models
 from api.routes.config import _build_api_config
+from services.auth import get_current_user
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -26,7 +27,7 @@ class JobCreate(BaseModel):
 
 
 @router.post("")
-def create_job(data: JobCreate, db: Session = Depends(get_db)):
+def create_job(data: JobCreate, db: Session = Depends(get_db), current_user: db_models.User = Depends(get_current_user)):
     from core.worker import process_files_task
 
     job_id = str(uuid.uuid4())
@@ -54,6 +55,7 @@ def create_job(data: JobCreate, db: Session = Depends(get_db)):
         total_files=len(file_paths),
         source_path=data.scan_path or "upload",
         dry_run=data.dry_run,
+        created_by=current_user.id,
     )
     db.add(job)
     db.commit()

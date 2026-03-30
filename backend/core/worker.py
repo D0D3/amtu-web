@@ -76,6 +76,15 @@ def process_files_task(self, job_id: str, file_paths: list, config: dict, dry_ru
 
         # Mettre à jour le job en DB
         job = db.query(db_models.Job).filter(db_models.Job.id == job_id).first()
+        # Récupérer le username du créateur pour l'historique
+        job_owner_id = None
+        job_owner_username = ""
+        if job and job.created_by:
+            owner = db.query(db_models.User).filter(db_models.User.id == job.created_by).first()
+            if owner:
+                job_owner_id = owner.id
+                job_owner_username = owner.username
+
         if job:
             job.status = 'running'
             job.total_files = total
@@ -150,6 +159,8 @@ def process_files_task(self, job_id: str, file_paths: list, config: dict, dry_ru
                         genre_after=result.genre_after,
                         error_message=result.error_message,
                         skip_reason=result.skip_reason,
+                        created_by=job_owner_id,
+                        username=job_owner_username,
                     )
                     db.add(history_entry)
                     db.commit()

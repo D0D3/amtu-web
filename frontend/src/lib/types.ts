@@ -109,6 +109,8 @@ export interface HistoryItem {
   skip_reason?: string
   error_message?: string
   dry_run?: boolean
+  created_by?: number
+  username?: string
 }
 
 export interface GenreMapping {
