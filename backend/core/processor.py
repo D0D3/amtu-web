@@ -233,10 +233,11 @@ class APIManager:
             confidence = min(100, confidence + 20)
         return confidence
 
-    def search_track(self, title: str, artist: str, retries: int = 3) -> List[TrackMetadata]:
+    def search_track(self, title: str, artist: str, retries: int = 3,
+                     prefer_single: bool = False) -> List[TrackMetadata]:
         for attempt in range(retries):
             try:
-                results = self._execute_search(title, artist)
+                results = self._execute_search(title, artist, prefer_single=prefer_single)
                 if results:
                     return results
             except Exception as e:
@@ -246,19 +247,24 @@ class APIManager:
                 time.sleep(1)
         return []
 
-    def _execute_search(self, title: str, artist: str) -> List[TrackMetadata]:
+    def _execute_search(self, title: str, artist: str, prefer_single: bool = False) -> List[TrackMetadata]:
         best_result = None
         services = self.config.get('services', {})
+        # MusicBrainz actif par défaut (cohérent avec _init_apis)
+        defaults = {'musicbrainz': True, 'spotify': False, 'discogs': False}
         candidates = [
             ('musicbrainz', self._search_musicbrainz),
             ('spotify', self._search_spotify),
             ('discogs', self._search_discogs),
         ]
         for service_name, search_func in candidates:
-            if not services.get(service_name, False):
+            if not services.get(service_name, defaults[service_name]):
                 continue
             try:
-                results = search_func(title, artist)
+                if service_name == 'musicbrainz':
+                    results = search_func(title, artist, prefer_single=prefer_single)
+                else:
+                    results = search_func(title, artist)
                 if not results:
                     continue
                 current_best = max(results, key=lambda x: x.confidence)
@@ -268,7 +274,7 @@ class APIManager:
                 logger.warning(f"Search error on {service_name}: {e}")
         return [best_result] if best_result else []
 
-    def _search_musicbrainz(self, title: str, artist: str) -> List[TrackMetadata]:
+    def _search_musicbrainz(self, title: str, artist: str, prefer_single: bool = False) -> List[TrackMetadata]:
         if not self.musicbrainz:
             return []
         results = []
@@ -286,14 +292,46 @@ class APIManager:
             for recording in search_results.get('recording-list', []):
                 if not recording.get('release-list'):
                     continue
-                release = recording['release-list'][0]
-                release_details = self.musicbrainz.get_release_by_id(release['id'], includes=['labels'])
-                actual_release = release_details.get('release', {})
-                label, catalog_number = None, None
-                if 'label-info-list' in actual_release:
-                    li = actual_release['label-info-list'][0]
-                    label = li.get('label', {}).get('name')
-                    catalog_number = li.get('catalog-number')
+
+                # Parcourir tous les releases pour trouver le plus pertinent avec un label/catno
+                # Si prefer_single, prioriser les releases de type Single ; sinon Album/EP
+                best_release = None
+                best_label = None
+                best_catalog = None
+                best_is_single = False
+
+                for release_stub in recording['release-list']:
+                    try:
+                        rd = self.musicbrainz.get_release_by_id(
+                            release_stub['id'], includes=['labels', 'release-groups']
+                        )
+                        rel = rd.get('release', {})
+                        rg_type = rel.get('release-group', {}).get('type', '').lower()
+                        is_single = rg_type == 'single'
+
+                        lbl, catno = None, None
+                        if 'label-info-list' in rel:
+                            li = rel['label-info-list'][0]
+                            lbl = li.get('label', {}).get('name')
+                            catno = li.get('catalog-number')
+
+                        if not lbl:
+                            continue  # Pas de label → inutile
+
+                        # Choisir ce release si :
+                        # - premier avec label, ou
+                        # - correspond mieux au type attendu (single vs album)
+                        if best_release is None:
+                            best_release, best_label, best_catalog, best_is_single = rel, lbl, catno, is_single
+                        elif prefer_single and is_single and not best_is_single:
+                            best_release, best_label, best_catalog, best_is_single = rel, lbl, catno, is_single
+                        elif not prefer_single and not is_single and best_is_single:
+                            best_release, best_label, best_catalog, best_is_single = rel, lbl, catno, is_single
+                    except Exception:
+                        continue
+
+                if not best_release:
+                    continue
 
                 confidence = self._calculate_confidence(
                     title, artist,
@@ -303,9 +341,10 @@ class APIManager:
                 results.append(TrackMetadata(
                     title=recording['title'],
                     artist=recording['artist-credit'][0]['artist']['name'],
-                    album=release.get('title', ''),
-                    label=label, catalog_number=catalog_number,
+                    album=best_release.get('title', ''),
+                    label=best_label, catalog_number=best_catalog,
                     artist_sort=artist_sort_name,
+                    is_single=best_is_single,
                     confidence=confidence, source='MusicBrainz'
                 ))
         except Exception as e:
@@ -324,9 +363,11 @@ class APIManager:
                 album = track['album']
                 confidence = self._calculate_confidence(title, artist, track['name'], track['artists'][0]['name'])
                 album_detail = self.spotify.album(album['id'])
+                is_single = album.get('album_type', '').lower() == 'single'
                 results.append(TrackMetadata(
                     title=track['name'], artist=track['artists'][0]['name'],
                     album=album['name'], label=album_detail.get('label'),
+                    is_single=is_single,
                     confidence=confidence, source='Spotify'
                 ))
         except Exception as e:
@@ -388,22 +429,23 @@ class MP3Processor:
             logger.warning(f"Read tags error {file_path.name}: {e}")
             return None
 
-    def process_file(self, file_path: Path, dry_run: bool = False) -> TrackResult:
-        """Traite un fichier MP3. dry_run=True pour prévisualiser sans modifier."""
+    def process_file(self, file_path: Path, dry_run: bool = False,
+                     forced_meta: Optional['TrackMetadata'] = None) -> TrackResult:
+        """Traite un fichier MP3. dry_run=True pour prévisualiser sans modifier.
+        forced_meta: si fourni (cas album/EP groupé), utilise ces métadonnées sans appel API."""
         result = TrackResult(
             file_path=str(file_path),
             file_name=file_path.name,
-            status='error'
+            status='skipped'  # défaut : ignoré ; 'error' uniquement sur exception d'écriture
         )
 
         if not self._is_valid_mp3(file_path):
             result.skip_reason = "Fichier MP3 invalide ou caché"
-            result.status = 'skipped'
             return result
 
         tags = self._read_tags(file_path)
         if not tags:
-            result.error_message = "Impossible de lire les tags"
+            result.skip_reason = "Impossible de lire les tags"
             return result
 
         # Enregistrer état avant
@@ -416,36 +458,42 @@ class MP3Processor:
 
         if not tags['title'] or not tags['artist']:
             result.skip_reason = "Titre ou artiste manquant"
-            result.status = 'skipped'
             return result
 
-        # Délai API
-        time.sleep(0.5)
+        if forced_meta is not None:
+            # Métadonnées déjà trouvées (groupe album/EP) — pas d'appel API
+            best = forced_meta
+        else:
+            # Détecter si le fichier est un single (tag album contient "Single")
+            is_single_hint = bool(re.search(r'\bsingle\b', tags.get('album', ''), re.IGNORECASE))
 
-        try:
-            api_results = self.api_manager.search_track(tags['title'], tags['artist'])
-        except Exception as e:
-            result.error_message = f"Erreur API: {str(e)}"
-            return result
+            # Délai API
+            time.sleep(0.5)
 
-        if not api_results:
-            result.skip_reason = "Aucun résultat trouvé sur les APIs"
-            result.status = 'skipped'
-            return result
+            try:
+                api_results = self.api_manager.search_track(
+                    tags['title'], tags['artist'], prefer_single=is_single_hint
+                )
+            except Exception as e:
+                result.error_message = f"Erreur API: {str(e)}"
+                result.status = 'error'
+                return result
 
-        best = api_results[0]
-        result.confidence = best.confidence
-        result.source_api = best.source
+            if not api_results:
+                result.skip_reason = "Aucun résultat trouvé sur les APIs"
+                return result
 
-        if best.confidence < 60:
-            result.skip_reason = f"Confiance insuffisante ({best.confidence:.0f}% < 60%)"
-            result.status = 'skipped'
-            return result
+            best = api_results[0]
+            result.confidence = best.confidence
+            result.source_api = best.source
 
-        if not best.label:
-            result.skip_reason = "Label non trouvé"
-            result.status = 'skipped'
-            return result
+            if best.confidence < 60:
+                result.skip_reason = f"Confiance insuffisante ({best.confidence:.0f}% < 60%)"
+                return result
+
+            if not best.label:
+                result.skip_reason = "Label non trouvé"
+                return result
 
         # Détecter genre
         best.genre = self.genre_manager.detect_genre(best)
@@ -579,9 +627,12 @@ class MP3Processor:
         group_meta = None
 
         if tags and tags.get('title') and tags.get('artist'):
+            is_single_hint = bool(re.search(r'\bsingle\b', tags.get('album', ''), re.IGNORECASE))
             time.sleep(0.5)
             try:
-                api_results = self.api_manager.search_track(tags['title'], tags['artist'])
+                api_results = self.api_manager.search_track(
+                    tags['title'], tags['artist'], prefer_single=is_single_hint
+                )
                 if api_results:
                     best = api_results[0]
                     if best.confidence >= 60 and best.label:
