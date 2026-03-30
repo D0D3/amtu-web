@@ -1,0 +1,123 @@
+name: amtu
+
+services:
+  backend:
+    build: ./backend
+    image: amtu-backend
+    container_name: amtu-backend
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+      - ./data/uploads:/app/uploads
+      - ${MUSIC_DIR:-./music_sample}:/music:ro
+    environment:
+      - DATABASE_URL=sqlite:////app/data/amtu.db
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-amtu-please-change-this-secret}
+      - APP_URL=${APP_URL:-https://amtu.humanbrorecords.club}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-amtu-change-me}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@amtu.local}
+      - ADMIN_FIRST_NAME=${ADMIN_FIRST_NAME:-Admin}
+      - ADMIN_LAST_NAME=${ADMIN_LAST_NAME:-AMTU}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - web
+      - clu-proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.amtu-api.rule=Host(`${DOMAIN:-amtu.humanbrorecords.club}`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.amtu-api.entrypoints=websecure"
+      - "traefik.http.routers.amtu-api.tls.certresolver=cloudflare"
+      - "traefik.http.routers.amtu-api.priority=10"
+      - "traefik.http.services.amtu-api.loadbalancer.server.port=8000"
+      - "traefik.http.services.amtu-api.loadbalancer.responseForwarding.flushInterval=-1"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  worker:
+    build: ./backend
+    image: amtu-worker
+    container_name: amtu-worker
+    command: celery -A core.worker worker --loglevel=info --concurrency=2
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+      - ./data/uploads:/app/uploads
+      - ${MUSIC_DIR:-./music_sample}:/music:ro
+    environment:
+      - DATABASE_URL=sqlite:////app/data/amtu.db
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-amtu-please-change-this-secret}
+      - APP_URL=${APP_URL:-https://amtu.humanbrorecords.club}
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      - web
+      - clu-proxy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A core.worker inspect ping --timeout=5 > /dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: dev
+    image: amtu-frontend
+    container_name: amtu-frontend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - web
+      - clu-proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.amtu.rule=Host(`${DOMAIN:-amtu.humanbrorecords.club}`)"
+      - "traefik.http.routers.amtu.entrypoints=websecure"
+      - "traefik.http.routers.amtu.tls.certresolver=cloudflare"
+      - "traefik.http.routers.amtu.priority=1"
+      - "traefik.http.services.amtu.loadbalancer.server.port=3000"
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: amtu-redis
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - web
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  redis_data:
+    name: amtu_redis_data
+
+networks:
+  web:
+    name: amtu_web
+    internal: true
+  clu-proxy:
+    external: true

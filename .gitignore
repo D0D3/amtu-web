@@ -1,0 +1,41 @@
+# ── Secrets et configuration locale ──────────────────────────────────────────
+.env
+!.env.example
+
+# ── Base de données et données persistantes ───────────────────────────────────
+data/amtu.db
+data/uploads/
+backend/data/
+backend/uploads/
+
+# ── Musique de test (non distribuée) ─────────────────────────────────────────
+music_sample/
+
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+*.log
+
+# ── Node / frontend ───────────────────────────────────────────────────────────
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+
+# ── Docker ───────────────────────────────────────────────────────────────────
+docker-compose.override.yml
+
+# ── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
