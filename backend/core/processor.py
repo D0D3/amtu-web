@@ -57,6 +57,7 @@ class TrackResult:
     catalog_after: str = ""
     genre_after: str = ""
     error_message: str = ""
+    error_type: str = ""  # 'api' | 'write' — vide si pas d'erreur
     skip_reason: str = ""
 
 
@@ -484,6 +485,7 @@ class MP3Processor:
                     )
                 except Exception as e:
                     result.error_message = f"Erreur API: {str(e)}"
+                    result.error_type = 'api'
                     result.status = 'error'
                     return result
 
@@ -595,6 +597,7 @@ class MP3Processor:
 
         except Exception as e:
             result.error_message = f"Erreur écriture tags: {str(e)}"
+            result.error_type = 'write'
             result.status = 'error'
 
         return result

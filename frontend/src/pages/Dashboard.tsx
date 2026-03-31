@@ -93,6 +93,20 @@ export function Dashboard() {
     setProcessed(0)
     setExpandedRows(new Set())
 
+    // ── Permission d'écriture (File System Access API) ──
+    // showOpenFilePicker donne lecture seule par défaut — on demande l'écriture ici,
+    // tant qu'on est encore dans le contexte du geste utilisateur (clic bouton).
+    if (!dryRun) {
+      for (const entry of fileEntries) {
+        try {
+          const perm = await (entry.handle as any).queryPermission?.({ mode: 'readwrite' })
+          if (perm !== 'granted') {
+            await (entry.handle as any).requestPermission?.({ mode: 'readwrite' })
+          }
+        } catch { /* API non supportée ou refus — createWritable() donnera l'erreur précise */ }
+      }
+    }
+
     let updated = 0, skipped = 0, errors = 0
     const batchResults: typeof results = []
 
@@ -126,8 +140,10 @@ export function Dashboard() {
       const isAlbum = !albumKey.startsWith('__solo__')
       const isEP = isAlbum && group.length < 7
 
-      // Recherche API sur le premier fichier valide du groupe uniquement
+      // Recherche API sur le premier fichier valide du groupe
+      // Si l'appel échoue (exception réseau, rate limit…), chaque fichier retentera individuellement.
       let groupEnriched: Awaited<ReturnType<typeof enrichTrack>> | null = null
+      let groupApiFailed = false  // exception réelle ≠ "non trouvé"
       const firstValid = group.find(et => et.tags?.title && et.tags?.artist)
 
       if (firstValid?.tags) {
@@ -144,6 +160,7 @@ export function Dashboard() {
           })
         } catch {
           groupEnriched = null
+          groupApiFailed = true
         }
       }
 
@@ -166,16 +183,29 @@ export function Dashboard() {
             batchResults.push(r); setResults(p => [r, ...p]); continue
           }
 
-          if (!groupEnriched || !groupEnriched.found) {
+          // Si l'appel groupe a échoué (exception), retenter individuellement pour ce fichier
+          let enriched = groupEnriched
+          if (enriched === null && groupApiFailed) {
+            try {
+              enriched = await enrichTrack({
+                title: tags.title, artist: tags.artist,
+                album: tags.album, current_genre: tags.genre,
+              })
+            } catch {
+              enriched = null
+            }
+          }
+
+          if (!enriched || !enriched.found) {
             skipped++
-            const r = { file_name: entry.name, relative_path: entry.relativePath, status: 'skipped' as const, confidence: groupEnriched?.confidence || 0, source: '', skip_reason: groupEnriched?.skip_reason || 'Non trouvé' }
+            const r = { file_name: entry.name, relative_path: entry.relativePath, status: 'skipped' as const, confidence: enriched?.confidence || 0, source: '', skip_reason: enriched?.skip_reason || 'Non trouvé' }
             batchResults.push(r); setResults(p => [r, ...p]); continue
           }
 
           if (!dryRun) {
             const file = await entry.handle.getFile()
             const arrayBuffer = await file.arrayBuffer()
-            const newBuffer = writeTags(arrayBuffer, tags, groupEnriched)
+            const newBuffer = writeTags(arrayBuffer, tags, enriched)
             const writable = await (entry.handle as any).createWritable()
             await writable.write(newBuffer)
             await writable.close()
@@ -185,16 +215,16 @@ export function Dashboard() {
           const r = {
             file_name: entry.name, relative_path: entry.relativePath,
             status: (dryRun ? 'dry_run' : 'updated') as any,
-            confidence: groupEnriched.confidence, source: groupEnriched.source,
-            label: groupEnriched.label, catalog: groupEnriched.catalog,
-            genre_before: tags.genre, genre_after: groupEnriched.genre,
-            album_artist_after: groupEnriched.album_artist,
+            confidence: enriched.confidence, source: enriched.source,
+            label: enriched.label, catalog: enriched.catalog,
+            genre_before: tags.genre, genre_after: enriched.genre,
+            album_artist_after: enriched.album_artist,
           }
           batchResults.push(r); setResults(p => [r, ...p])
 
         } catch (e: any) {
           errors++
-          const r = { file_name: entry.name, relative_path: entry.relativePath, status: 'error' as const, confidence: 0, source: '', error_message: e?.message || String(e) }
+          const r = { file_name: entry.name, relative_path: entry.relativePath, status: 'error' as const, confidence: 0, source: '', error_message: e?.message || String(e), error_type: 'write' as const }
           batchResults.push(r); setResults(p => [r, ...p])
         }
       }
@@ -242,6 +272,9 @@ export function Dashboard() {
   }
   const statusLabel = {
     updated: 'Mis à jour', dry_run: 'Aperçu', skipped: 'Ignoré', error: 'Erreur',
+  }
+  const errorTypeBadge: Record<string, string> = {
+    write: 'Locale', api: 'API',
   }
 
   return (
@@ -421,7 +454,7 @@ export function Dashboard() {
                 : !!(r.skip_reason || r.error_message)
               const isOpen = expandedRows.has(i)
               return (
-                <div key={i} className={`rounded-xl border text-sm ${statusColor[r.status]}`}>
+                <div key={i} className={`rounded-xl border text-sm ${statusColor[r.status] ?? statusColor.error}`}>
                   <button
                     type="button"
                     onClick={() => hasDetails && toggleRow(i)}
@@ -434,7 +467,12 @@ export function Dashboard() {
                       )}
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
-                      <span className="text-xs font-semibold">{statusLabel[r.status]}</span>
+                      {r.status === 'error' && r.error_type && (
+                        <span className="text-xs font-medium opacity-60 border border-current rounded px-1">
+                          {errorTypeBadge[r.error_type] ?? r.error_type}
+                        </span>
+                      )}
+                      <span className="text-xs font-semibold">{statusLabel[r.status] ?? statusLabel.error}</span>
                       {hasDetails && (
                         isOpen
                           ? <ChevronDown className="w-3.5 h-3.5 opacity-60" />

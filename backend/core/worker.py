@@ -184,6 +184,7 @@ def process_files_task(self, job_id: str, file_paths: list, config: dict, dry_ru
                     'label': result.label_after,
                     'skip_reason': result.skip_reason,
                     'error': result.error_message,
+                    'error_type': result.error_type,
                     'before': {
                         'label': result.label_before,
                         'genre': result.genre_before,

@@ -69,6 +69,7 @@ export interface TrackResult {
   after: TrackTags
   skip_reason?: string
   error_message?: string
+  error_type?: 'api' | 'write'
   label?: string
 }
 
@@ -85,6 +86,7 @@ export interface SSEEvent {
   label?: string
   skip_reason?: string
   error?: string
+  error_type?: 'api' | 'write'
   before?: TrackTags
   after?: TrackTags
   updated?: number
@@ -171,6 +173,7 @@ export interface LocalTrackResult {
   album_artist_after?: string
   skip_reason?: string
   error_message?: string
+  error_type?: 'write'  // toujours local côté navigateur
 }
 
 export interface Announcement {

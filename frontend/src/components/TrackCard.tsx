@@ -8,6 +8,8 @@ const statusConfig = {
   error: { icon: XCircle, color: 'text-red-500', bg: 'bg-red-50 border-red-100', label: 'Erreur' },
 }
 
+const errorTypeBadge: Record<string, string> = { write: 'Locale', api: 'API' }
+
 const sourceColors: Record<string, string> = {
   MusicBrainz: 'bg-purple-100 text-purple-700',
   Spotify: 'bg-green-100 text-green-700',
@@ -59,6 +61,11 @@ export function TrackCard({ track, animate }: Props) {
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {track.status === 'error' && track.error_type && (
+            <span className="text-xs font-medium text-red-400 border border-red-300 rounded px-1">
+              {errorTypeBadge[track.error_type] ?? track.error_type}
+            </span>
+          )}
           {track.source_api && (
             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${sourceColors[track.source_api] || 'bg-gray-100 text-gray-600'}`}>
               {track.source_api}

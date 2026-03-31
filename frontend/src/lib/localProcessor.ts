@@ -50,7 +50,7 @@ export function writeTags(
   // ── Champs existants à préserver ──
   if (existing.title)           writer.setFrame('TIT2', existing.title)
   if (existing.artist)          writer.setFrame('TPE1', [existing.artist])
-  if (existing.year)            writer.setFrame('TDRC', String(existing.year))
+  if (existing.year)            writer.setFrame('TYER', String(existing.year))
   if (existing.track)           writer.setFrame('TRCK', String(existing.track))
 
   // Album (possiblement nettoyé de "- Single" par le serveur)
