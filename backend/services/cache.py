@@ -53,6 +53,7 @@ class CacheManager:
             source=entry.source_api,
             is_single=entry.is_single,
             genre=entry.genre or None,
+            year=entry.year if entry.year else None,
         )
 
     def set(self, title: str, artist: str, metadata) -> None:
@@ -76,6 +77,7 @@ class CacheManager:
             existing.source_api = metadata.source
             existing.is_single = metadata.is_single
             existing.genre = metadata.genre or ""
+            existing.year = metadata.year
             existing.expires_at = expires
             existing.last_used_at = now
         else:
@@ -88,6 +90,7 @@ class CacheManager:
                 source_api=metadata.source,
                 is_single=metadata.is_single,
                 genre=metadata.genre or "",
+                year=metadata.year,
                 expires_at=expires,
             )
             self.db.add(entry)

@@ -48,13 +48,18 @@ def _migrate_columns():
     new_history_cols = {
         'created_by': 'INTEGER',
         'username': 'VARCHAR DEFAULT ""',
+        'year_before': 'VARCHAR DEFAULT ""',
+        'year_after': 'VARCHAR DEFAULT ""',
+    }
+    new_track_cache_cols = {
+        'year': 'INTEGER',
     }
     new_user_cols = {
         'token_invalidated_at': 'DATETIME',
     }
     try:
         with engine.connect() as conn:
-            for table, cols in [('config', new_config_cols), ('jobs', new_job_cols), ('genre_mappings', new_genre_cols), ('history', new_history_cols), ('users', new_user_cols)]:
+            for table, cols in [('config', new_config_cols), ('jobs', new_job_cols), ('genre_mappings', new_genre_cols), ('history', new_history_cols), ('users', new_user_cols), ('track_cache', new_track_cache_cols)]:
                 result = conn.execute(text(f"PRAGMA table_info({table})"))
                 existing = {row[1] for row in result}
                 for col, col_type in cols.items():

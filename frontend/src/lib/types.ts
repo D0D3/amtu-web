@@ -58,6 +58,7 @@ export interface TrackTags {
   label?: string
   catalog?: string
   genre?: string
+  year?: string
 }
 
 export interface TrackResult {
@@ -154,6 +155,7 @@ export interface EnrichResult {
   genre?: string
   album_artist?: string
   album?: string
+  year?: number
   confidence: number
   source: string
   is_single: boolean
@@ -171,6 +173,10 @@ export interface LocalTrackResult {
   genre_before?: string
   genre_after?: string
   album_artist_after?: string
+  album_before?: string
+  album_after?: string
+  year_before?: number
+  year_after?: number
   skip_reason?: string
   error_message?: string
   error_type?: 'write'  // toujours local côté navigateur

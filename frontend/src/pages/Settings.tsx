@@ -132,8 +132,9 @@ export function Settings() {
 
   const currentServices = services || {
     musicbrainz: config?.musicbrainz_enabled ?? true,
-    spotify: config?.spotify_enabled ?? false,
-    discogs: config?.discogs_enabled ?? false,
+    // Actif si le toggle est on OU si des credentials sont déjà configurés
+    spotify: config?.spotify_enabled ?? (config?.spotify_client_secret_set || config?.spotify_client_id ? true : false),
+    discogs: config?.discogs_enabled ?? (config?.discogs_token_set ? true : false),
   }
 
   const saveMutation = useMutation({
@@ -188,6 +189,21 @@ export function Settings() {
     setServices(() => ({ ...currentServices, [name]: v }))
   }
 
+  // Auto-enable Spotify dès qu'on saisit un credential
+  const handleSpotifyIdChange = (v: string) => {
+    setSpotifyId(v)
+    if (v) setServices(() => ({ ...currentServices, spotify: true }))
+  }
+  const handleSpotifySecretChange = (v: string) => {
+    setSpotifySecret(v)
+    if (v) setServices(() => ({ ...currentServices, spotify: true }))
+  }
+  // Auto-enable Discogs dès qu'on saisit un token
+  const handleDiscogsTokenChange = (v: string) => {
+    setDiscogsToken(v)
+    if (v) setServices(() => ({ ...currentServices, discogs: true }))
+  }
+
   const inputClass = 'w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amtu-500'
 
   // Badge statut email pour le header replié
@@ -213,46 +229,52 @@ export function Settings() {
           />
           <ServiceRow
             name="spotify" label="Spotify"
-            description="Nécessite un compte développeur Spotify"
+            description={currentServices.spotify && (config?.spotify_client_id || config?.spotify_client_secret_set) ? 'Credentials configurés' : 'Nécessite un compte développeur Spotify'}
             enabled={currentServices.spotify}
             onToggle={v => toggleService('spotify', v)}
           />
           <ServiceRow
             name="discogs" label="Discogs"
-            description="Base de données vinyle/musique — token personnel requis"
+            description={currentServices.discogs && config?.discogs_token_set ? 'Token configuré' : 'Base de données vinyle/musique — token personnel requis'}
             enabled={currentServices.discogs}
             onToggle={v => toggleService('discogs', v)}
           />
         </div>
 
-        {/* Credentials Spotify */}
-        {currentServices.spotify && (
-          <div className="space-y-3 pt-2 border-t border-gray-100 dark:border-gray-700">
-            <p className="text-sm font-medium text-gray-700 dark:text-gray-200">Spotify API</p>
-            <div className="text-xs text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
-              Créez une app sur <span className="font-mono">developer.spotify.com/dashboard</span> pour obtenir vos credentials.
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1.5">Client ID</label>
-              <input value={spotifyId} onChange={e => setSpotifyId(e.target.value)}
-                placeholder={config?.spotify_client_id || 'Votre Client ID Spotify'} className={inputClass} />
-            </div>
-            <SecretInput label="Client Secret" placeholder="Votre Client Secret"
-              value={spotifySecret} onChange={setSpotifySecret} isSet={config?.spotify_client_secret_set} />
+        {/* Credentials Spotify — toujours visibles */}
+        <div className="space-y-3 pt-2 border-t border-gray-100 dark:border-gray-700">
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center gap-2">
+            Spotify API
+            {!config?.spotify_client_id && !config?.spotify_client_secret_set && (
+              <span className="text-xs font-normal text-gray-400 dark:text-gray-500">— optionnel</span>
+            )}
+          </p>
+          <div className="text-xs text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
+            Créez une app sur <span className="font-mono">developer.spotify.com/dashboard</span> pour obtenir vos credentials.
           </div>
-        )}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1.5">Client ID</label>
+            <input value={spotifyId} onChange={e => handleSpotifyIdChange(e.target.value)}
+              placeholder={config?.spotify_client_id || 'Votre Client ID Spotify'} className={inputClass} />
+          </div>
+          <SecretInput label="Client Secret" placeholder="Votre Client Secret"
+            value={spotifySecret} onChange={handleSpotifySecretChange} isSet={config?.spotify_client_secret_set} />
+        </div>
 
-        {/* Credentials Discogs */}
-        {currentServices.discogs && (
-          <div className="space-y-3 pt-2 border-t border-gray-100 dark:border-gray-700">
-            <p className="text-sm font-medium text-gray-700 dark:text-gray-200">Discogs API</p>
-            <div className="text-xs text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
-              Générez un token sur <span className="font-mono">discogs.com/settings/developers</span>
-            </div>
-            <SecretInput label="Token personnel" placeholder="Votre token Discogs"
-              value={discogsToken} onChange={setDiscogsToken} isSet={config?.discogs_token_set} />
+        {/* Credentials Discogs — toujours visibles */}
+        <div className="space-y-3 pt-2 border-t border-gray-100 dark:border-gray-700">
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center gap-2">
+            Discogs API
+            {!config?.discogs_token_set && (
+              <span className="text-xs font-normal text-gray-400 dark:text-gray-500">— optionnel</span>
+            )}
+          </p>
+          <div className="text-xs text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
+            Générez un token sur <span className="font-mono">discogs.com/settings/developers</span>
           </div>
-        )}
+          <SecretInput label="Token personnel" placeholder="Votre token Discogs"
+            value={discogsToken} onChange={handleDiscogsTokenChange} isSet={config?.discogs_token_set} />
+        </div>
 
         {/* Résultats test API */}
         {testResults && (

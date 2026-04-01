@@ -2,11 +2,16 @@
  * Traitement local des tags ID3 côté navigateur.
  * Lit les tags avec music-metadata-browser, écrit avec browser-id3-writer.
  * Les fichiers MP3 ne quittent jamais le Mac/PC de l'utilisateur.
+ *
+ * Pour GRP1 (Regroupement Apple Music) : le backend génère le tag ID3 via mutagen,
+ * le frontend réinjecte l'APIC (cover art) depuis le fichier original et reconstruit
+ * le fichier sans jamais envoyer les données audio au serveur.
  */
 import * as mm from 'music-metadata-browser'
 // @ts-ignore — pas de types pour browser-id3-writer
 import Writer from 'browser-id3-writer'
 import type { EnrichResult } from './types'
+import { generateId3Tag } from './api'
 
 export interface ParsedTags {
   title: string
@@ -39,7 +44,85 @@ export async function readTags(arrayBuffer: ArrayBuffer): Promise<ParsedTags> {
   }
 }
 
-/** Écrit les tags enrichis dans le fichier, préserve tous les champs existants. */
+/**
+ * Écrit les tags enrichis via le backend (mutagen) pour assurer la compatibilité
+ * Apple Music (GRP1 = Regroupement). La cover art est extraite localement et
+ * réinjectée — l'audio ne quitte jamais le navigateur.
+ *
+ * Retourne null si l'appel backend échoue (le caller peut fallback sur writeTags).
+ */
+export async function writeTagsViaBackend(
+  arrayBuffer: ArrayBuffer,
+  existing: ParsedTags,
+  enriched: EnrichResult,
+): Promise<ArrayBuffer | null> {
+  try {
+    const existingAlbumCleaned = existing.album
+      ? existing.album.replace(/\s*-\s*single\s*$/i, '').trim()
+      : undefined
+    const album  = enriched.album  || existingAlbumCleaned || undefined
+    const label  = enriched.label  || existing.composer || undefined
+    const catalog = enriched.catalog || existing.grouping || undefined
+    const genre  = enriched.genre  || existing.genre  || undefined
+    const year   = enriched.year   ?? existing.year   ?? undefined
+    const albumArtist = enriched.album_artist || existing.albumArtist || undefined
+
+    const { tag_b64 } = await generateId3Tag({
+      title:        existing.title   || undefined,
+      artist:       existing.artist  || undefined,
+      album,
+      album_artist: albumArtist,
+      label,
+      catalog,
+      genre,
+      year,
+      track: existing.track || undefined,
+    })
+
+    // Décoder le tag ID3 généré par mutagen (base64 → Uint8Array)
+    const tagBytes = Uint8Array.from(atob(tag_b64), c => c.charCodeAt(0))
+
+    // Lire la taille du tag généré (synchsafe integer, octets 6-9)
+    const tagSize = ((tagBytes[6] & 0x7F) << 21) | ((tagBytes[7] & 0x7F) << 14) | ((tagBytes[8] & 0x7F) << 7) | (tagBytes[9] & 0x7F)
+
+    // Extraire les données audio depuis le fichier original (sauter l'ancien tag ID3)
+    const origBytes = new Uint8Array(arrayBuffer)
+    let audioStart = 0
+    if (origBytes[0] === 0x49 && origBytes[1] === 0x44 && origBytes[2] === 0x33) {
+      const origTagSize = ((origBytes[6] & 0x7F) << 21) | ((origBytes[7] & 0x7F) << 14) | ((origBytes[8] & 0x7F) << 7) | (origBytes[9] & 0x7F)
+      audioStart = 10 + origTagSize
+    }
+    const audioData = origBytes.slice(audioStart)
+
+    // Extraire le frame APIC (cover art) depuis le fichier original
+    const apicFrame = existing.picture ? extractApicFrame(origBytes) : null
+    const apicLen = apicFrame?.length ?? 0
+
+    // Construire le fichier final : [tag mutagen] + [APIC si présent] + [audio]
+    const result = new Uint8Array(tagBytes.length + apicLen + audioData.length)
+    result.set(tagBytes)
+    if (apicFrame) {
+      result.set(apicFrame, tagBytes.length)
+      // Mettre à jour la taille du tag dans le header pour inclure l'APIC
+      const newTagSize = tagSize + apicLen
+      result[6] = (newTagSize >>> 21) & 0x7F
+      result[7] = (newTagSize >>> 14) & 0x7F
+      result[8] = (newTagSize >>> 7) & 0x7F
+      result[9] = newTagSize & 0x7F
+    }
+    result.set(audioData, tagBytes.length + apicLen)
+
+    return result.buffer
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Fallback : écrit les tags enrichis localement avec browser-id3-writer.
+ * N'écrit PAS GRP1 (non supporté) — Apple Music n'affichera pas le Regroupement.
+ * Utilisé uniquement si writeTagsViaBackend échoue (réseau indisponible, etc.).
+ */
 export function writeTags(
   arrayBuffer: ArrayBuffer,
   existing: ParsedTags,
@@ -47,49 +130,77 @@ export function writeTags(
 ): ArrayBuffer {
   const writer = new Writer(arrayBuffer)
 
-  // ── Champs existants à préserver ──
   if (existing.title)           writer.setFrame('TIT2', existing.title)
   if (existing.artist)          writer.setFrame('TPE1', [existing.artist])
-  if (existing.year)            writer.setFrame('TYER', String(existing.year))
   if (existing.track)           writer.setFrame('TRCK', String(existing.track))
 
-  // Album (possiblement nettoyé de "- Single" par le serveur)
+  // Année — priorité API, sinon existante
+  const year = enriched.year ?? existing.year
+  if (year)                     writer.setFrame('TYER', String(year))
+
   const album = enriched.album || existing.album
   if (album)                    writer.setFrame('TALB', album)
 
-  // Cover art — critique pour Apple Music
   if (existing.picture) {
     const pic = existing.picture
     const data = pic.data instanceof Uint8Array
       ? pic.data.buffer.slice(pic.data.byteOffset, pic.data.byteOffset + pic.data.byteLength)
       : pic.data
-    writer.setFrame('APIC', {
-      type: 3,
-      data,
-      description: '',
-      useUnicodeEncoding: false,
-    })
+    writer.setFrame('APIC', { type: 3, data, description: '', useUnicodeEncoding: false })
   }
 
-  // ── Enrichissement AMTU ──
-  // Album Artist / Band → groupement des albums dans Apple Music
   if (enriched.album_artist)    writer.setFrame('TPE2', enriched.album_artist)
   else if (existing.albumArtist) writer.setFrame('TPE2', existing.albumArtist)
 
-  // Genre
   const genre = enriched.genre || existing.genre
   if (genre)                    writer.setFrame('TCON', [genre])
 
-  // Label → champ Composer (TCOM) — même logique que l'app desktop AMTU
   if (enriched.label)           writer.setFrame('TCOM', [enriched.label])
   else if (existing.composer)   writer.setFrame('TCOM', [existing.composer])
 
-  // Numéro de catalogue → Grouping (TIT1)
-  if (enriched.catalog)         writer.setFrame('TIT1', enriched.catalog)
-  else if (existing.grouping)   writer.setFrame('TIT1', existing.grouping)
+  // TIT1 = Content Group (standard) — pas GRP1, ne s'affiche pas comme "Regroupement" dans Apple Music
+  const catalog = enriched.catalog || existing.grouping
+  if (catalog)                  writer.setFrame('TIT1', catalog)
 
   writer.addTag()
   return writer.arrayBuffer
+}
+
+/**
+ * Extrait le frame APIC (cover art) brut depuis un tag ID3.
+ * Supporte ID3v2.3 (taille frame = big-endian) et ID3v2.4 (taille frame = synchsafe).
+ */
+function extractApicFrame(src: Uint8Array): Uint8Array | null {
+  if (src[0] !== 0x49 || src[1] !== 0x44 || src[2] !== 0x33) return null
+
+  const majorVersion = src[3]
+  const tagSize = ((src[6] & 0x7F) << 21) | ((src[7] & 0x7F) << 14) | ((src[8] & 0x7F) << 7) | (src[9] & 0x7F)
+  const tagEnd = 10 + tagSize
+
+  let offset = 10
+  while (offset + 10 <= tagEnd) {
+    if (src[offset] === 0x00) break  // padding
+
+    const frameId = String.fromCharCode(src[offset], src[offset + 1], src[offset + 2], src[offset + 3])
+
+    let frameSize: number
+    if (majorVersion === 4) {
+      // ID3v2.4 : taille synchsafe
+      frameSize = ((src[offset+4] & 0x7F) << 21) | ((src[offset+5] & 0x7F) << 14) | ((src[offset+6] & 0x7F) << 7) | (src[offset+7] & 0x7F)
+    } else {
+      // ID3v2.3 : taille big-endian classique
+      frameSize = (src[offset+4] << 24) | (src[offset+5] << 16) | (src[offset+6] << 8) | src[offset+7]
+    }
+
+    if (frameSize <= 0 || frameSize > tagSize) break  // sécurité
+
+    if (frameId === 'APIC') {
+      return src.slice(offset, offset + 10 + frameSize)
+    }
+
+    offset += 10 + frameSize
+  }
+  return null
 }
 
 /** Collecte récursivement tous les .mp3 dans un FileSystemDirectoryHandle. */

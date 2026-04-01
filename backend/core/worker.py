@@ -157,6 +157,8 @@ def process_files_task(self, job_id: str, file_paths: list, config: dict, dry_ru
                         label_after=result.label_after,
                         catalog_after=result.catalog_after,
                         genre_after=result.genre_after,
+                        year_before=result.year_before,
+                        year_after=result.year_after,
                         error_message=result.error_message,
                         skip_reason=result.skip_reason,
                         created_by=job_owner_id,
@@ -190,12 +192,14 @@ def process_files_task(self, job_id: str, file_paths: list, config: dict, dry_ru
                         'genre': result.genre_before,
                         'album': result.album_before,
                         'catalog': result.catalog_before,
+                        'year': result.year_before,
                     },
                     'after': {
                         'label': result.label_after,
                         'genre': result.genre_after,
                         'album': result.album_after,
                         'catalog': result.catalog_after,
+                        'year': result.year_after,
                     },
                 })
 

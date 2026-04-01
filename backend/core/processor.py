@@ -17,7 +17,7 @@ from spotipy.oauth2 import SpotifyClientCredentials
 import discogs_client
 import musicbrainzngs
 from mutagen.easyid3 import EasyID3
-from mutagen.id3 import ID3, TCOM, GRP1, TPE2, TALB, TIT2, TPE1, TCON
+from mutagen.id3 import ID3, TCOM, GRP1, TPE2, TALB, TIT2, TPE1, TCON, TDRC
 
 logger = logging.getLogger(__name__)
 
@@ -50,12 +50,14 @@ class TrackResult:
     label_before: str = ""
     catalog_before: str = ""
     genre_before: str = ""
+    year_before: str = ""
     title_after: str = ""
     artist_after: str = ""
     album_after: str = ""
     label_after: str = ""
     catalog_after: str = ""
     genre_after: str = ""
+    year_after: str = ""
     error_message: str = ""
     error_type: str = ""  # 'api' | 'write' — vide si pas d'erreur
     skip_reason: str = ""
@@ -339,6 +341,8 @@ class APIManager:
                     recording['title'],
                     recording['artist-credit'][0]['artist']['name']
                 )
+                raw_date = best_release.get('date', '')
+                best_year = int(raw_date[:4]) if raw_date and raw_date[:4].isdigit() else None
                 results.append(TrackMetadata(
                     title=recording['title'],
                     artist=recording['artist-credit'][0]['artist']['name'],
@@ -346,7 +350,8 @@ class APIManager:
                     label=best_label, catalog_number=best_catalog,
                     artist_sort=artist_sort_name,
                     is_single=best_is_single,
-                    confidence=confidence, source='MusicBrainz'
+                    confidence=confidence, source='MusicBrainz',
+                    year=best_year,
                 ))
         except Exception as e:
             logger.error(f"MusicBrainz search error: {e}")
@@ -365,11 +370,14 @@ class APIManager:
                 confidence = self._calculate_confidence(title, artist, track['name'], track['artists'][0]['name'])
                 album_detail = self.spotify.album(album['id'])
                 is_single = album.get('album_type', '').lower() == 'single'
+                raw_date = album_detail.get('release_date', '')
+                sp_year = int(raw_date[:4]) if raw_date and raw_date[:4].isdigit() else None
                 results.append(TrackMetadata(
                     title=track['name'], artist=track['artists'][0]['name'],
                     album=album['name'], label=album_detail.get('label'),
                     is_single=is_single,
-                    confidence=confidence, source='Spotify'
+                    confidence=confidence, source='Spotify',
+                    year=sp_year,
                 ))
         except Exception as e:
             logger.error(f"Spotify search error: {e}")
@@ -387,10 +395,12 @@ class APIManager:
                     label_name = release.labels[0].name if release.labels else None
                     catalog_num = release.labels[0].catno if release.labels else None
                     confidence = self._calculate_confidence(title, artist, release.title, artist_name)
+                    dg_year = release.year if release.year else None
                     results.append(TrackMetadata(
                         title=release.title, artist=artist_name, album=release.title,
                         label=label_name, catalog_number=catalog_num,
-                        confidence=confidence, source='Discogs'
+                        confidence=confidence, source='Discogs',
+                        year=dg_year,
                     ))
                 except Exception:
                     continue
@@ -426,6 +436,7 @@ class MP3Processor:
                 'label': audio.get('composer', [''])[0],
                 'catalog': audio.get('grouping', [''])[0],
                 'genre': audio.get('genre', [''])[0],
+                'year': audio.get('date', [''])[0],
             }
         except Exception as e:
             logger.warning(f"Read tags error {file_path.name}: {e}")
@@ -457,6 +468,7 @@ class MP3Processor:
         result.label_before = tags['label']
         result.catalog_before = tags['catalog']
         result.genre_before = tags['genre']
+        result.year_before = tags['year']
 
         if not tags['title'] or not tags['artist']:
             result.skip_reason = "Titre ou artiste manquant"
@@ -532,12 +544,14 @@ class MP3Processor:
             new_genre = best.genre
 
         # État après (pour affichage)
+        new_year = str(best.year) if best.year else tags['year']
         result.title_after = tags['title']
         result.artist_after = tags['artist']
         result.album_after = new_album
         result.label_after = best.label or tags['label']
         result.catalog_after = best.catalog_number or tags['catalog']
         result.genre_after = new_genre
+        result.year_after = new_year
 
         if dry_run:
             result.status = 'updated'
@@ -587,6 +601,11 @@ class MP3Processor:
                     if 'TCON' in key or 'GENRE' in key:
                         audio.delall(key)
                 audio['TCON'] = TCON(encoding=3, text=[new_genre])
+                updated = True
+
+            # Année → TDRC
+            if new_year and new_year != tags['year']:
+                audio['TDRC'] = TDRC(encoding=3, text=[new_year])
                 updated = True
 
             if updated:

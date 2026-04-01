@@ -58,6 +58,14 @@ export const enrichTrack = (data: {
   title: string; artist: string; album?: string; current_genre?: string
 }) => api.post<EnrichResult>('/enrich', data).then(r => r.data)
 
+export const generateId3Tag = (data: {
+  title?: string; artist?: string; album?: string; album_artist?: string
+  label?: string; catalog?: string; genre?: string; year?: number; track?: number
+}) => api.post<{ tag_b64: string }>('/enrich/id3-tag', data).then(r => r.data)
+
+export const getVersion = () =>
+  api.get<{ version: string }>('/config/version').then(r => r.data)
+
 // Config
 export const getConfig = () => api.get<Config>('/config').then(r => r.data)
 export const saveConfig = (data: Partial<Config> & {
@@ -83,6 +91,7 @@ export const saveHistoryBatch = (entries: {
   file_name: string; status: string; dry_run: boolean; confidence: number; source_api: string;
   title_before?: string; artist_before?: string; album_before?: string; label_before?: string; genre_before?: string;
   label_after?: string; catalog_after?: string; genre_after?: string; album_after?: string;
+  year_before?: string; year_after?: string;
   skip_reason?: string; error_message?: string;
 }[]) => api.post('/history/batch', entries).then(r => r.data)
 export const deleteHistory = (id: number) => api.delete(`/history/${id}`).then(r => r.data)

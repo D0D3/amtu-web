@@ -143,8 +143,15 @@ def save_config(data: ConfigIn, db: Session = Depends(get_db), _=Depends(require
     if data.discogs_token:
         cfg.discogs_token_enc = _encrypt(data.discogs_token)
     cfg.musicbrainz_enabled = data.musicbrainz_enabled
-    cfg.spotify_enabled = data.spotify_enabled
-    cfg.discogs_enabled = data.discogs_enabled
+    # Auto-enable si les credentials viennent d'être fournis
+    if data.spotify_client_secret or (data.spotify_client_id and data.spotify_client_id != cfg.spotify_client_id):
+        cfg.spotify_enabled = True
+    else:
+        cfg.spotify_enabled = data.spotify_enabled
+    if data.discogs_token:
+        cfg.discogs_enabled = True
+    else:
+        cfg.discogs_enabled = data.discogs_enabled
     # SMTP
     cfg.smtp_enabled = data.smtp_enabled
     cfg.smtp_host = data.smtp_host or cfg.smtp_host
@@ -167,14 +174,19 @@ def save_config(data: ConfigIn, db: Session = Depends(get_db), _=Depends(require
 
 def _build_api_config(db: Session) -> dict:
     cfg = _get_or_create_config(db)
+    spotify_secret = _decrypt(cfg.spotify_client_secret_enc)
+    discogs_token = _decrypt(cfg.discogs_token_enc)
+    # Un service avec credentials est considéré actif même si le toggle est off
+    spotify_active = cfg.spotify_enabled or bool(cfg.spotify_client_id and spotify_secret)
+    discogs_active = cfg.discogs_enabled or bool(discogs_token)
     return {
         'spotify_client_id': cfg.spotify_client_id or "",
-        'spotify_client_secret': _decrypt(cfg.spotify_client_secret_enc),
-        'discogs_token': _decrypt(cfg.discogs_token_enc),
+        'spotify_client_secret': spotify_secret,
+        'discogs_token': discogs_token,
         'services': {
             'musicbrainz': cfg.musicbrainz_enabled,
-            'spotify': cfg.spotify_enabled,
-            'discogs': cfg.discogs_enabled,
+            'spotify': spotify_active,
+            'discogs': discogs_active,
         }
     }
 

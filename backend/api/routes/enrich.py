@@ -1,4 +1,6 @@
 """Route d'enrichissement de piste — traitement côté navigateur (File System Access API)"""
+import io
+import base64
 from typing import Optional
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -27,6 +29,7 @@ class EnrichOut(BaseModel):
     genre: Optional[str] = None
     album_artist: Optional[str] = None
     album: Optional[str] = None
+    year: Optional[int] = None
     confidence: float = 0.0
     source: str = ""
     is_single: bool = False
@@ -104,7 +107,53 @@ def enrich_track(
         genre=detected_genre,
         album_artist=album_artist,
         album=album if album != (data.album or "") else None,
+        year=meta.year,
         confidence=meta.confidence,
         source=meta.source,
         is_single=is_single,
     )
+
+
+# ── Génération de tag ID3 côté serveur (mutagen) ──────────────────────────────
+
+class TagWriteIn(BaseModel):
+    title: Optional[str] = None
+    artist: Optional[str] = None
+    album: Optional[str] = None
+    album_artist: Optional[str] = None
+    label: Optional[str] = None
+    catalog: Optional[str] = None
+    genre: Optional[str] = None
+    year: Optional[int] = None
+    track: Optional[int] = None
+
+
+@router.post("/id3-tag")
+def generate_id3_tag(
+    data: TagWriteIn,
+    current_user: db_models.User = Depends(get_current_user),
+):
+    """Génère les octets bruts d'un tag ID3v2.3 avec mutagen.
+    Permet au frontend d'écrire GRP1 (Regroupement Apple Music) que
+    browser-id3-writer ne supporte pas. L'audio ne quitte jamais le navigateur."""
+    from mutagen.id3 import ID3, TIT2, TPE1, TPE2, TALB, TCON, TCOM, GRP1, TDRC, TRCK
+
+    tags = ID3()
+    if data.title:        tags.add(TIT2(encoding=3, text=[data.title]))
+    if data.artist:       tags.add(TPE1(encoding=3, text=[data.artist]))
+    if data.album_artist: tags.add(TPE2(encoding=3, text=[data.album_artist]))
+    if data.album:        tags.add(TALB(encoding=3, text=[data.album]))
+    if data.genre:        tags.add(TCON(encoding=3, text=[data.genre]))
+    if data.label:        tags.add(TCOM(encoding=3, text=[data.label]))
+    if data.catalog:      tags.add(GRP1(encoding=3, text=[data.catalog]))
+    if data.year:         tags.add(TDRC(encoding=3, text=[str(data.year)]))
+    if data.track:        tags.add(TRCK(encoding=3, text=[str(data.track)]))
+
+    buf = io.BytesIO()
+    # padding=0 : pas de padding après les frames, sinon les parsers s'arrêtent
+    # aux octets nuls avant d'atteindre le frame APIC ajouté côté frontend.
+    tags.save(buf, v2_version=3, padding=lambda x: 0)
+    buf.seek(0)
+    tag_bytes = buf.read()
+
+    return {"tag_b64": base64.b64encode(tag_bytes).decode()}

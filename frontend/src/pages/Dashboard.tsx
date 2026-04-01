@@ -1,10 +1,11 @@
 import { useState, useCallback, useRef } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
   FolderOpen, Play, Square, CheckCircle2, SkipForward,
-  AlertCircle, RefreshCw, Eye, Tag, ChevronDown, ChevronRight,
+  AlertCircle, RefreshCw, Eye, Tag, ChevronDown, ChevronRight, Upload,
 } from 'lucide-react'
-import { enrichTrack, saveHistoryBatch } from '../lib/api'
-import { readTags, writeTags, collectMp3Files } from '../lib/localProcessor'
+import { enrichTrack, saveHistoryBatch, getVersion } from '../lib/api'
+import { readTags, writeTags, writeTagsViaBackend, collectMp3Files } from '../lib/localProcessor'
 import type { LocalTrackResult } from '../lib/types'
 
 type Filter = 'all' | 'updated' | 'skipped' | 'error'
@@ -12,6 +13,7 @@ type Filter = 'all' | 'updated' | 'skipped' | 'error'
 const CONFIDENCE_THRESHOLD = 60
 
 export function Dashboard() {
+  const { data: versionData } = useQuery({ queryKey: ['version'], queryFn: getVersion })
   const [folderName, setFolderName] = useState('')
   const [fileEntries, setFileEntries] = useState<
     Array<{ name: string; relativePath: string; handle: FileSystemFileHandle }>
@@ -27,6 +29,8 @@ export function Dashboard() {
   const [dryRun, setDryRun] = useState(false)
   const [filter, setFilter] = useState<Filter>('all')
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
+  const [isDragging, setIsDragging] = useState(false)
+  const dropZoneRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef(false)
 
   const toggleRow = (i: number) =>
@@ -42,6 +46,59 @@ export function Dashboard() {
     setProcessed(0)
     setFileEntries([])
   }
+
+  // ── Drag & drop ──
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    if (!isProcessing && !isScanning) setIsDragging(true)
+  }, [isProcessing, isScanning])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (dropZoneRef.current && !dropZoneRef.current.contains(e.relatedTarget as Node)) {
+      setIsDragging(false)
+    }
+  }, [])
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+    if (isProcessing || isScanning) return
+
+    const items = Array.from(e.dataTransfer.items).filter(i => i.kind === 'file')
+    if (!items.length) return
+
+    resetState()
+    setIsScanning(true)
+
+    const allEntries: Array<{ name: string; relativePath: string; handle: FileSystemFileHandle }> = []
+    let firstDirName = ''
+
+    for (const item of items) {
+      try {
+        const handle = await (item as any).getAsFileSystemHandle()
+        if (!handle) continue
+        if (handle.kind === 'directory') {
+          if (!firstDirName) firstDirName = handle.name
+          const entries = await collectMp3Files(handle)
+          allEntries.push(...entries)
+        } else if (handle.kind === 'file' && handle.name.toLowerCase().endsWith('.mp3')) {
+          allEntries.push({ name: handle.name, relativePath: handle.name, handle })
+        }
+      } catch {
+        // getAsFileSystemHandle non disponible (Firefox, Safari) — ignorer
+      }
+    }
+
+    if (allEntries.length) {
+      const label = firstDirName
+        || `${allEntries.length} fichier${allEntries.length > 1 ? 's' : ''} déposé${allEntries.length > 1 ? 's' : ''}`
+      setFolderName(label)
+      setFileEntries(allEntries)
+    } else if (!firstDirName && items.length > 0) {
+      // Tous les items étaient peut-être des non-MP3 ou le navigateur ne supporte pas l'API
+    }
+    setIsScanning(false)
+  }, [isProcessing, isScanning])
 
   // ── Sélection d'un dossier (File System Access API) ──
   const handlePickFolder = useCallback(async () => {
@@ -205,20 +262,31 @@ export function Dashboard() {
           if (!dryRun) {
             const file = await entry.handle.getFile()
             const arrayBuffer = await file.arrayBuffer()
-            const newBuffer = writeTags(arrayBuffer, tags, enriched)
+            // Essaie le backend (mutagen → GRP1 = Regroupement Apple Music)
+            // Fallback sur browser-id3-writer si le backend est indisponible
+            const backendBuffer = await writeTagsViaBackend(arrayBuffer, tags, enriched)
+            const newBuffer = backendBuffer ?? writeTags(arrayBuffer, tags, enriched)
             const writable = await (entry.handle as any).createWritable()
             await writable.write(newBuffer)
             await writable.close()
           }
 
           updated++
+          const existingAlbumCleaned = tags.album
+            ? tags.album.replace(/\s*-\s*single\s*$/i, '').trim()
+            : undefined
+          const albumAfter = enriched.album || existingAlbumCleaned || tags.album || ''
           const r = {
             file_name: entry.name, relative_path: entry.relativePath,
             status: (dryRun ? 'dry_run' : 'updated') as any,
             confidence: enriched.confidence, source: enriched.source,
             label: enriched.label, catalog: enriched.catalog,
             genre_before: tags.genre, genre_after: enriched.genre,
+            album_before: tags.album || '',
+            album_after: albumAfter,
             album_artist_after: enriched.album_artist,
+            year_before: tags.year,
+            year_after: enriched.year,
           }
           batchResults.push(r); setResults(p => [r, ...p])
 
@@ -243,9 +311,13 @@ export function Dashboard() {
       source_api: r.source || '',
       artist_before: '',
       genre_before: r.genre_before || '',
+      album_before: r.album_before || '',
       label_after: r.label || '',
       catalog_after: r.catalog || '',
       genre_after: r.genre_after || '',
+      album_after: r.album_after || '',
+      year_before: r.year_before != null ? String(r.year_before) : '',
+      year_after: r.year_after != null ? String(r.year_after) : '',
       skip_reason: r.skip_reason || '',
       error_message: r.error_message || '',
     }))
@@ -281,7 +353,25 @@ export function Dashboard() {
     <div className="space-y-6">
 
       {/* Sélection dossier */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-6 space-y-5">
+      <div
+        ref={dropZoneRef}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={`bg-white dark:bg-gray-800 rounded-2xl shadow-sm border-2 transition-all p-6 space-y-5
+          ${isDragging
+            ? 'border-amtu-400 bg-amtu-50 dark:bg-amtu-900/20 scale-[1.005]'
+            : 'border-gray-100 dark:border-gray-700'
+          }`}
+      >
+        {isDragging ? (
+          <div className="flex flex-col items-center justify-center py-10 gap-3 pointer-events-none">
+            <Upload className="w-10 h-10 text-amtu-500" />
+            <p className="font-semibold text-amtu-700 dark:text-amtu-300 text-sm">Déposez vos fichiers ou dossiers ici</p>
+            <p className="text-xs text-amtu-500">MP3 acceptés — dossiers récursifs supportés</p>
+          </div>
+        ) : (
+        <>
         <div>
           <h2 className="font-semibold text-gray-800 dark:text-gray-100">Dossier à traiter</h2>
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
@@ -383,6 +473,8 @@ export function Dashboard() {
               </button>
             </div>
           </div>
+        )}
+        </>
         )}
       </div>
 
@@ -506,6 +598,16 @@ export function Dashboard() {
               )
             })}
           </div>
+        </div>
+      )}
+
+      {/* Version */}
+      {versionData && (
+        <div className="text-center text-xs text-gray-400 dark:text-gray-600 pb-2">
+          <span className="flex items-center justify-center gap-1.5">
+            <Tag className="w-3 h-3" />
+            AMTU Web {versionData.version}
+          </span>
         </div>
       )}
     </div>

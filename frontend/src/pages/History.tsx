@@ -94,6 +94,7 @@ function HistoryRow({ item, onDelete, showUser }: { item: HistoryItem; onDelete:
                   <p><span className="text-gray-400 dark:text-gray-500 w-16 inline-block">Genre</span> {item.before?.genre || '—'}</p>
                   <p><span className="text-gray-400 dark:text-gray-500 w-16 inline-block">Album</span> {item.before?.album || '—'}</p>
                   <p><span className="text-gray-400 dark:text-gray-500 w-16 inline-block">Catalog</span> {item.before?.catalog || '—'}</p>
+                  <p><span className="text-gray-400 dark:text-gray-500 w-16 inline-block">Année</span> {item.before?.year || '—'}</p>
                 </div>
               </div>
               <div>
@@ -103,6 +104,7 @@ function HistoryRow({ item, onDelete, showUser }: { item: HistoryItem; onDelete:
                   <p><span className="text-gray-400 dark:text-gray-500 w-16 inline-block">Genre</span> <span className="text-green-700 dark:text-green-400 font-medium">{item.after?.genre || '—'}</span></p>
                   <p><span className="text-gray-400 dark:text-gray-500 w-16 inline-block">Album</span> <span className="text-green-700 dark:text-green-400 font-medium">{item.after?.album || '—'}</span></p>
                   <p><span className="text-gray-400 dark:text-gray-500 w-16 inline-block">Catalog</span> <span className="text-green-700 dark:text-green-400 font-medium">{item.after?.catalog || '—'}</span></p>
+                  <p><span className="text-gray-400 dark:text-gray-500 w-16 inline-block">Année</span> <span className="text-green-700 dark:text-green-400 font-medium">{item.after?.year || '—'}</span></p>
                 </div>
               </div>
               {item.skip_reason && (

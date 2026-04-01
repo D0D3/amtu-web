@@ -30,6 +30,8 @@ class HistoryEntryIn(BaseModel):
     catalog_after: str = ""
     genre_after: str = ""
     album_after: str = ""
+    year_before: str = ""
+    year_after: str = ""
     skip_reason: str = ""
     error_message: str = ""
 
@@ -57,6 +59,8 @@ def save_history_batch(
             catalog_after=e.catalog_after,
             genre_after=e.genre_after,
             album_after=e.album_after,
+            year_before=e.year_before,
+            year_after=e.year_after,
             skip_reason=e.skip_reason,
             error_message=e.error_message,
             created_by=current_user.id,
@@ -83,10 +87,12 @@ def _history_to_dict(r) -> dict:
         "before": {
             "label": r.label_before, "genre": r.genre_before,
             "album": r.album_before, "catalog": r.catalog_before,
+            "year": r.year_before,
         },
         "after": {
             "label": r.label_after, "genre": r.genre_after,
             "album": r.album_after, "catalog": r.catalog_after,
+            "year": r.year_after,
         },
         "skip_reason": r.skip_reason,
         "error_message": r.error_message,

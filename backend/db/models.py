@@ -76,6 +76,7 @@ class History(Base):
     label_before = Column(String, default="")
     catalog_before = Column(String, default="")
     genre_before = Column(String, default="")
+    year_before = Column(String, default="")
     # Tags APRÈS
     title_after = Column(String, default="")
     artist_after = Column(String, default="")
@@ -83,6 +84,7 @@ class History(Base):
     label_after = Column(String, default="")
     catalog_after = Column(String, default="")
     genre_after = Column(String, default="")
+    year_after = Column(String, default="")
     # Meta
     error_message = Column(Text, default="")
     skip_reason = Column(Text, default="")
@@ -151,5 +153,6 @@ class TrackCache(Base):
     genre = Column(String, default="")
     created_at = Column(DateTime, default=datetime.utcnow)
     last_used_at = Column(DateTime, default=datetime.utcnow)
+    year = Column(Integer, nullable=True)
     hit_count = Column(Integer, default=0)
     expires_at = Column(DateTime, nullable=False)
