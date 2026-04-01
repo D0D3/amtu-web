@@ -9,7 +9,7 @@ Enrichit automatiquement vos fichiers MP3 (label, catalogue, genre, album artist
 
 ## Fonctionnalités
 
-- **Traitement local (navigateur)** : sélection d'un dossier ou de fichiers MP3, lecture/écriture directement sur votre machine (File System Access API — Chrome/Edge uniquement)
+- **Traitement local (navigateur)** : sélection ou glisser-déposer d'un dossier / de fichiers MP3, lecture/écriture directement sur votre machine (File System Access API — Chrome/Edge uniquement)
 - **Traitement serveur** : dossier monté côté serveur, traitement asynchrone via Celery + Redis avec progression en temps réel (SSE)
 - **Groupement album/EP** : une seule requête API par album (même logique que la version Python AMTU)
 - **Trois sources** : MusicBrainz (gratuit), Spotify, Discogs — le meilleur score gagne
@@ -141,6 +141,9 @@ Un snapshot est créé automatiquement avant chaque import et avant chaque resta
 | Album Artist | `TPE2` (Band) | Artiste de l'album |
 | Genre | `TCON` | Genre musical |
 | Album | `TALB` | Titre de l'album |
+| Année | `TDRC` / `TYER` | Année de sortie |
+
+> **GRP1 (Regroupement Apple Music)** : le tag est généré côté serveur via mutagen pour garantir la compatibilité — `browser-id3-writer` ne supporte pas ce frame. L'audio ne quitte jamais le navigateur.
 
 **Confiance minimale requise : 60% + label présent**
 En dessous de ce seuil, le fichier est ignoré (pas de modification).
