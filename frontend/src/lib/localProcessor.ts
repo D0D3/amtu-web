@@ -94,8 +94,9 @@ export async function writeTagsViaBackend(
     }
     const audioData = origBytes.slice(audioStart)
 
-    // Extraire le frame APIC (cover art) depuis le fichier original
-    const apicFrame = existing.picture ? extractApicFrame(origBytes) : null
+    // Construire le frame APIC depuis les données déjà parsées (plus fiable que
+    // re-parser les bytes bruts, qui peut échouer sur certains encodages)
+    const apicFrame = existing.picture ? buildApicFrame(existing.picture) : null
     const apicLen = apicFrame?.length ?? 0
 
     // Construire le fichier final : [tag mutagen] + [APIC si présent] + [audio]
@@ -167,40 +168,37 @@ export function writeTags(
 }
 
 /**
- * Extrait le frame APIC (cover art) brut depuis un tag ID3.
- * Supporte ID3v2.3 (taille frame = big-endian) et ID3v2.4 (taille frame = synchsafe).
+ * Construit un frame APIC (cover art) ID3v2.3 depuis les données déjà parsées.
+ * Plus fiable que re-parser les bytes bruts du fichier original, qui peut échouer
+ * sur certains encodages (extended header, taille synchsafe vs big-endian, etc.).
  */
-function extractApicFrame(src: Uint8Array): Uint8Array | null {
-  if (src[0] !== 0x49 || src[1] !== 0x44 || src[2] !== 0x33) return null
+function buildApicFrame(picture: mm.IPicture): Uint8Array {
+  const mime = new TextEncoder().encode(picture.format || 'image/jpeg')
+  const picData = picture.data instanceof Uint8Array
+    ? picture.data
+    : new Uint8Array((picture.data as any).buffer ?? picture.data)
 
-  const majorVersion = src[3]
-  const tagSize = ((src[6] & 0x7F) << 21) | ((src[7] & 0x7F) << 14) | ((src[8] & 0x7F) << 7) | (src[9] & 0x7F)
-  const tagEnd = 10 + tagSize
+  // Contenu du frame : encoding(1) + mime + null(1) + picType(1) + desc null(1) + data
+  const frameDataLen = 1 + mime.length + 1 + 1 + 1 + picData.length
+  const frameData = new Uint8Array(frameDataLen)
+  let pos = 0
+  frameData[pos++] = 0x00             // encoding ISO-8859-1
+  frameData.set(mime, pos); pos += mime.length
+  frameData[pos++] = 0x00             // null après le MIME type
+  frameData[pos++] = 0x03             // picture type : Cover front
+  frameData[pos++] = 0x00             // description vide (null terminator)
+  frameData.set(picData, pos)
 
-  let offset = 10
-  while (offset + 10 <= tagEnd) {
-    if (src[offset] === 0x00) break  // padding
-
-    const frameId = String.fromCharCode(src[offset], src[offset + 1], src[offset + 2], src[offset + 3])
-
-    let frameSize: number
-    if (majorVersion === 4) {
-      // ID3v2.4 : taille synchsafe
-      frameSize = ((src[offset+4] & 0x7F) << 21) | ((src[offset+5] & 0x7F) << 14) | ((src[offset+6] & 0x7F) << 7) | (src[offset+7] & 0x7F)
-    } else {
-      // ID3v2.3 : taille big-endian classique
-      frameSize = (src[offset+4] << 24) | (src[offset+5] << 16) | (src[offset+6] << 8) | src[offset+7]
-    }
-
-    if (frameSize <= 0 || frameSize > tagSize) break  // sécurité
-
-    if (frameId === 'APIC') {
-      return src.slice(offset, offset + 10 + frameSize)
-    }
-
-    offset += 10 + frameSize
-  }
-  return null
+  // Header du frame : "APIC" + taille big-endian 4 octets + flags 2 octets
+  const frame = new Uint8Array(10 + frameDataLen)
+  frame[0] = 0x41; frame[1] = 0x50; frame[2] = 0x49; frame[3] = 0x43 // 'APIC'
+  frame[4] = (frameDataLen >>> 24) & 0xFF
+  frame[5] = (frameDataLen >>> 16) & 0xFF
+  frame[6] = (frameDataLen >>> 8)  & 0xFF
+  frame[7] =  frameDataLen         & 0xFF
+  frame[8] = 0x00; frame[9] = 0x00  // flags
+  frame.set(frameData, 10)
+  return frame
 }
 
 /** Collecte récursivement tous les .mp3 dans un FileSystemDirectoryHandle. */

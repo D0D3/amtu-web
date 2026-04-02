@@ -562,9 +562,9 @@ class MP3Processor:
             try:
                 audio = ID3(str(file_path))
             except Exception:
+                # Pas de header ID3 : créer en mémoire sans écraser le fichier
+                # (audio.save intermédiaire effacerait les illustrations existantes)
                 audio = ID3()
-                audio.save(str(file_path))
-                audio = ID3(str(file_path))
 
             updated = False
             original_time = os.path.getmtime(file_path)

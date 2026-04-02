@@ -145,6 +145,8 @@ Un snapshot est créé automatiquement avant chaque import et avant chaque resta
 
 > **GRP1 (Regroupement Apple Music)** : le tag est généré côté serveur via mutagen pour garantir la compatibilité — `browser-id3-writer` ne supporte pas ce frame. L'audio ne quitte jamais le navigateur.
 
+> **Préservation de la pochette (APIC)** : la cover art existante est extraite via `music-metadata-browser` puis ré-encodée en frame APIC ID3v2.3 (`buildApicFrame`) et réinjectée dans le fichier final. Cette approche est plus fiable que de re-parser les bytes bruts du fichier original, qui peut échouer selon l'encodage (extended header, tailles synchsafe vs big-endian).
+
 **Confiance minimale requise : 60% + label présent**
 En dessous de ce seuil, le fichier est ignoré (pas de modification).
 
