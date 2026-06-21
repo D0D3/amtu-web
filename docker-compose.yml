@@ -5,6 +5,10 @@ services:
     build: ./backend
     image: amtu-backend
     container_name: amtu-backend
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     volumes:
       - ./backend:/app
       - ./data:/app/data
@@ -45,7 +49,11 @@ services:
     build: ./backend
     image: amtu-worker
     container_name: amtu-worker
-    command: celery -A core.worker worker --loglevel=info --concurrency=2
+    command: celery -A core.worker worker --loglevel=info --concurrency=2 --max-tasks-per-child=50
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     volumes:
       - ./backend:/app
       - ./data:/app/data
@@ -76,12 +84,13 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      target: dev
+      target: prod
     image: amtu-frontend
     container_name: amtu-frontend
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
+    deploy:
+      resources:
+        limits:
+          memory: 64m
     depends_on:
       - backend
     networks:
@@ -99,7 +108,11 @@ services:
   redis:
     image: redis:7-alpine
     container_name: amtu-redis
-    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    command: redis-server --appendonly yes --maxmemory 64mb --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          memory: 80m
     volumes:
       - redis_data:/data
     networks:
